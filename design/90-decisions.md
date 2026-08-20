@@ -330,6 +330,32 @@ need.
 
 Reversibility: cheap to add a justified export; removing one is breaking.
 
+### 2026-08-20 — Reframe the package as a Portfolio-specific static builder
+
+Context: the original design targeted a reusable React view library with no
+deployment surface. The approved implementation direction instead transfers the
+clean LandingPage delivery process into this repository, replaces its generic
+README/changelog model with Portfolio rendering, and ports the effective
+Portfolio overlay from Docusaurus to React/Vite.
+
+Chosen: retain external ownership of Portfolio content, copy, routes, branding,
+credentials, hosting, and deployment choice; add an auditable builder and
+delivery surface; and use a pure React root with Node/Vite, browser, and
+Data.Json integrations outside that graph. The clean LandingPage `origin/main`
+commit after UI12 and a recorded effective Portfolio overlay are the required
+implementation evidence.
+
+Rejected: **keep the view-library-only brief** — it cannot own the requested
+build and delivery process. **copy Portfolio content into the package** — it
+would make current consumer data and branding a package default. **retain
+LandingPage's generic README/changelog modes** — it expands the public contract
+instead of replacing it with the requested Portfolio model. **retain
+Docusaurus at runtime** — it would couple the new builder to the framework the
+port is meant to remove.
+
+Reversibility: expensive. The product identity determines exports, dependencies,
+documentation, test fixtures, and the repository's delivery responsibility.
+
 ## Open
 
 None.
