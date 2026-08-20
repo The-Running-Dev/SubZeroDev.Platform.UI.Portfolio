@@ -422,3 +422,427 @@ After S9, a separate plan may migrate `Docusaurus-Template` in this order:
 
 That work is out of scope for this repository-design task and is not authorized
 by this plan.
+
+## How this document is kept
+
+The S0-S9 plan above is retained as retired planning evidence. It predates the
+approved Portfolio-builder reset recorded in `design/90-decisions.md`, none of
+its slices was tracked as an issue, and its ids remain unavailable. The
+authoritative unimplemented work begins at S10 under `## Outstanding`.
+
+An outstanding slice keeps its complete body here. When its issue closes, its
+body is retired and `## Landed` keeps only its stable id, name, issue, criterion
+range, and the commit at which the body was complete. A re-run appends new
+slices under `## Outstanding`; it never rewrites a landed row or reuses an id.
+
+## Outstanding
+
+## S10 — Render a validated Portfolio overview from the packed root
+
+Delivers: A React application author can install the package and render a
+Portfolio overview from validated data without bringing a site framework or
+builder runtime into the application.
+
+Touches: contracts and validation, Portfolio view model, deterministic
+selectors, pure React presentation, namespaced styles, root package export,
+packed-consumer fixtures
+
+Depends on: none
+
+Acceptance:
+
+- S10.1 A packed consumer with only the contracted React peers imports the root,
+  validates a minimal and a representative complete Portfolio model, and
+  server-renders `szd-portfolio-overview` under both supported React majors.
+- S10.2 The Portfolio validator accepts `unknown`, rejects every contracted
+  empty, duplicate, inconsistent, non-finite, unsupported-version, and
+  unknown-field branch, and preserves deterministic issue paths and order.
+- S10.3 Portfolio selectors return equal results for equal inputs, do not mutate
+  their inputs, and emit no destination for a technology or project whose link
+  capability has no `href`.
+- S10.4 Ordinary strings containing markup render as escaped text, and a
+  Portfolio model with no cross-route destination emits no `/projects`, `/cv`,
+  `/docs`, demo, repository, or admin anchor.
+- S10.5 Complete parsed DOM and CSS manifests contain only the contracted
+  `szd-portfolio-`, `--szd-portfolio-`, and `data-szd-portfolio-` owned names;
+  importing JavaScript does not load CSS.
+- S10.6 The packed root imports, bundles, and server-renders with Node, Vite,
+  Data.Json, and browser globals absent or poisoned.
+
+Out of scope: CV, Projects, site chrome, browser effects, source providers, and
+builder commands.
+
+## S11 — Produce one crash-safe static Portfolio artifact
+
+Delivers: A site maintainer can give the builder one explicit configuration and
+receive a verified static Portfolio route without risking the last successful
+artifact when a new build fails.
+
+Touches: configuration declaration, Node configuration loader, provenance
+verifier, resolution kernel, source orchestrator, route planner, document
+compiler, artifact writer, build command, artifact and recovery records
+
+Depends on: S10
+
+Acceptance:
+
+- S11.1 `build --root <path> --config <path> --out-dir <path>` accepts no omitted
+  or inferred path, loads exactly one version-one configuration, and rejects
+  invalid declarations and cross-references before source I/O or output
+  mutation.
+- S11.2 A fixture declaring one build-timed Portfolio source and one explicit
+  route produces exactly that route's static document, contracted browser
+  assets, declared styles and assets, and a version-one artifact record; a
+  fixture that omits `/` emits no root document.
+- S11.3 Call-order spies prove provider resolution, consumer raw validation,
+  projection, package view validation, complete-set composition, and rendering
+  occur in that order, and no later step runs after an earlier rejection.
+- S11.4 The tracked three-role provenance manifest validates its immutable
+  commits or image digest, ordered overlay rules, file digests, clean-tree
+  evidence, canonical digest, and fixture binding; a normal build succeeds with
+  evidence-network access poisoned.
+- S11.5 Build writes and verifies a sibling staging tree under one writer lease
+  before promotion; injected failure at each write and promotion boundary
+  leaves the previous artifact byte-for-byte unchanged or writes a recovery
+  record naming every tree whose authority is ambiguous.
+- S11.6 A second writer is refused while the lease is held, an unresolved
+  recovery record blocks later writers, and neither state is deleted without
+  the contracted ownership or adjudication proof.
+- S11.7 Artifact canonicalization is stable across repeated identical builds,
+  sorts emitted files by normalized output path, and records no raw payload,
+  function, credential, request header, or private provider description.
+
+Out of scope: browser-timed sources, CV and Projects documents, check, dev,
+preview, merge, workflow delivery, publication, and deployment.
+
+## S12 — Hydrate browser-timed routes without exposing partial data
+
+Delivers: A site author can use browser-fresh Portfolio data while visitors see
+matching server and first-client markup and never see a route composed from a
+partial source set.
+
+Touches: browser bootstrap record, browser integration, browser source gate,
+resolution kernel, document compiler, build command
+
+Depends on: S11
+
+Acceptance:
+
+- S12.1 A browser-gated route server-renders the deterministic unresolved
+  boundary and serializes only its route identity, model versions, validated
+  build models, fallback diagnostics, and declared browser source ids.
+- S12.2 The client validates the bootstrap and settles every required browser
+  source before hydration, hydrates the same unresolved boundary, and publishes
+  exactly one `ready`, `fallback`, or `error` result after the hydration commit.
+- S12.3 Out-of-order source completion yields declaration-ordered results and
+  errors, and a composition spy receives either the entire validated set or no
+  invocation.
+- S12.4 An invalid primary value, thrown consumer validator, thrown projection,
+  invalid fallback, and provider failure each produce the contracted typed
+  error without raw rejected data in the bootstrap, DOM, or diagnostic text.
+- S12.5 Reversed refresh completions prove only the newest generation publishes;
+  disposal prevents every later publication and releases subscriptions.
+- S12.6 Browser entrypoint import and server rendering succeed with `window`,
+  `document`, `location`, and storage absent or poisoned.
+
+Out of scope: Data.Json translation, saved presentation preferences, Projects
+URL state, and development regeneration.
+
+## S13 — Render the complete non-Projects presentation surface
+
+Delivers: A React application author can render the Portfolio masthead, CV,
+version display, and supporting content with the same validation, route-safety,
+and framework independence as the overview.
+
+Touches: site chrome, CV, version-display view models and validators, CV
+selectors, pure React presentation, namespaced styles, root exports, document
+compiler
+
+Depends on: S10, S11
+
+Acceptance:
+
+- S13.1 Every newly exported version-one validator accepts minimal and complete
+  valid fixtures and rejects every branch in its recorded rejection matrix,
+  including unknown fields, duplicate ids, invalid links, and inconsistent CV
+  periods.
+- S13.2 Site chrome renders absent destinations as inert content and emits a
+  non-root anchor only when the consumer supplied that exact destination.
+- S13.3 CV ordinary strings containing markup are escaped; only a matching
+  declared rich-text slot renders caller-supplied React content, and a missing
+  slot never falls back to raw HTML.
+- S13.4 Two instances of site chrome, CV, and version display produce no
+  package-owned duplicate id, and representative keyboard and accessibility
+  checks report no violations.
+- S13.5 Version output is identical under different clocks, locales, and
+  timezones when its explicit model is unchanged.
+- S13.6 Explicit CV and Portfolio route fixtures build through the single
+  document compiler, while undeclared route kinds and destinations emit no
+  document or anchor.
+
+Out of scope: Projects browsing, text-size and reader-mode state, consumer icon
+libraries, and disabled baseline features.
+
+## S14 — Browse Projects with controlled preferences
+
+Delivers: A visitor can search, filter, sort, and browse Projects and can change
+text size or reader mode through accessible controls whose state remains owned
+by the consuming site.
+
+Touches: Projects, text-size, and reader-mode view models and validators,
+Projects selectors, pure React presentation, browser preference and URL
+controllers, namespaced styles, document compiler
+
+Depends on: S12, S13
+
+Acceptance:
+
+- S14.1 Projects validation rejects unknown fields, duplicate ids, missing
+  category or sort references, inconsistent periods, and non-finite values;
+  every rejection branch and valid minimal, empty, and complete fixture is
+  exercised.
+- S14.2 Fixed model and query inputs produce an exact, stable filtered and
+  sorted project order without mutating the model or reading a clock, locale,
+  location, storage, or feature flag.
+- S14.3 Search, filter, sort, navigation, text-size, and reader-mode controls are
+  keyboard operable and expose accessible names, focus order, and current state
+  through contracted package-prefixed attributes.
+- S14.4 URL, storage, and DOM ports are caller-supplied; unknown saved choices
+  and throwing ports retain the declared first-render default and produce only
+  the contracted optional diagnostics after hydration.
+- S14.5 Two simultaneous Projects and preference-control instances have no
+  package-owned id, storage-key, subscription, or DOM-state collision.
+- S14.6 Source and export-graph checks contain no admin, edit, authentication,
+  API mutation, storage implementation, drag/drop, audit, Docusaurus, or Infima
+  dependency.
+
+Out of scope: Projects administration, package-owned storage keys, implicit
+routes, history monkey-patching, DOM polling, and theme switching.
+
+## S15 — Plan every declared route, style, and public asset
+
+Delivers: A site maintainer can build a root-only site or the full declared
+Portfolio route set and receives only the routes, links, styles, and assets the
+configuration explicitly names.
+
+Touches: site configuration, route planner, source orchestrator, document
+compiler, artifact writer, navigation capabilities, style capabilities, public
+assets
+
+Depends on: S11, S13, S14
+
+Acceptance:
+
+- S15.1 Root-only and explicit multi-route fixtures emit one contained static
+  document per declared normalized path, retain declaration order in records,
+  and fail broken-link checks for every undeclared absolute-site destination.
+- S15.2 Duplicate, escaping, or base-path-incompatible routes; missing or
+  duplicated required source references; timing conflicts; and route/source
+  cycles fail planning before compilation.
+- S15.3 Missing, non-regular, escaping, disallowed, duplicate, or colliding
+  style and asset declarations fail before staging promotion, including
+  collisions with documents, bundles, bootstrap data, and the artifact record.
+- S15.4 The core stylesheet appears exactly once only when declared, consumer
+  styles retain declared order, and JavaScript imports add no stylesheet.
+- S15.5 Every route kind uses the same document compiler and emits the
+  contracted chrome, version, text-size, and reader-mode sources only when its
+  presentation declaration references them.
+- S15.6 The explicit current-Portfolio fixture and the root-only fixture pass
+  route, DOM/CSS namespace, hydration, accessibility, and artifact-record
+  checks without copying consumer product data into the package.
+
+Out of scope: arbitrary Vite plugins, inferred routers, inherited template
+pages, host defaults, and deployment policy.
+
+## S16 — Resolve declared sources through Data.Json
+
+Delivers: A Data.Json consumer can use its own loader and source identifiers for
+build-time and browser-time Portfolio data without giving the package a global
+loader, generated source map, or cache policy.
+
+Touches: Data.Json integration, source provider capability, resolution kernel,
+source orchestrator, browser source gate, data-json package export
+
+Depends on: S12, S15
+
+Acceptance:
+
+- S16.1 `createDataJsonProvider` requires one explicit loader, source id, and
+  safe public descriptor, and a packed consumer resolves that id without any
+  generated source map or singleton import.
+- S16.2 Successful Data.Json values cross consumer validation, projection, and
+  package validation exactly once before either build composition or browser
+  publication.
+- S16.3 Unresolved id, load failure, unavailable refresh, and invalid metadata
+  produce their exact contracted codes and retain safe causes without copying
+  private metadata or payloads.
+- S16.4 Refresh invalidates and reloads only the declared id through the supplied
+  loader; cancellation suppresses publication without claiming the provider
+  request was aborted.
+- S16.5 Root, builder, and browser packed fixtures install and run with Data.Json
+  absent, and the Data.Json dependency is reachable only from `./data-json`.
+
+Out of scope: loader construction, retry, source-map discovery, cache policy,
+hard-coded source ids, and consumer raw schemas.
+
+## S17 — Check a site without replacing its artifact
+
+Delivers: A site maintainer can run the package's complete validation and
+verification path and receive an explicit result for every gate without
+replacing the site's existing build.
+
+Touches: check command, command surface, route planner, document compiler,
+artifact verifier, gate result and check result records
+
+Depends on: S15, S16
+
+Acceptance:
+
+- S17.1 `check --root <path> --config <path>` rejects an omitted or inferred
+  path and runs the production loader, provenance verifier, resolver, planner,
+  compiler, and artifact checks in an isolated temporary target.
+- S17.2 The report contains every contracted gate exactly once with `passed`,
+  `failed`, or `not-run`; a failed gate returns `check.failed`, the complete
+  gate list, and a non-zero process exit.
+- S17.3 Fault injection before and after every temporary write leaves the named
+  production output and source repository byte-for-byte unchanged.
+- S17.4 A clean representative fixture returns an artifact record whose digest
+  and file list match an ordinary build of the same inputs.
+- S17.5 Help and unknown invocations print usage without loading configuration;
+  success writes one concise result line and failures write ordered redacted
+  diagnostics to stderr.
+
+Out of scope: serving, watching, merging, publishing, and deployment.
+
+## S18 — Regenerate a development site without partial generations
+
+Delivers: A site author can work against an explicit local address and sees
+only complete site generations while configuration and source files change.
+
+Touches: dev command, Node configuration loader, source orchestrator, route
+planner, document compiler, artifact writer, static server
+
+Depends on: S17
+
+Acceptance:
+
+- S18.1 `dev --root <path> --config <path> --out-dir <path> --host <host> --port
+  <port>` requires every shown value and binds only after configuration,
+  provenance, and initial build-source resolution succeed.
+- S18.2 A burst of observed changes is coalesced, one generation runs at a time,
+  and the last observed change produces the next eligible generation.
+- S18.3 A failing generation is visible through the development error surface
+  and never publishes any of its documents, models, styles, assets, or record;
+  the last complete generation remains served.
+- S18.4 Production and development fixtures produce byte-equivalent route
+  documents and bootstrap records for equal normalized inputs.
+- S18.5 Closing the server releases watchers, subscriptions, sockets, staging
+  state, and its ordinary lease without deleting ambiguous recovery state.
+
+Out of scope: implicit file discovery, hot acceptance of invalid data,
+parallel generations, and deployment concurrency.
+
+## S19 — Preview the exact promoted artifact
+
+Delivers: A reviewer can build and serve the exact promoted site at an explicit
+local address, with contained request handling shared by every preview.
+
+Touches: preview command, build command, static server, artifact writer,
+running-server contract
+
+Depends on: S17
+
+Acceptance:
+
+- S19.1 `preview --root <path> --config <path> --out-dir <path> --host <host>
+  --port <port>` requires every shown value, completes an ordinary promoted
+  build, and binds only after that build succeeds.
+- S19.2 The server reads only the artifact recorded for that build and maps each
+  declared route and asset to the same contained path and content type used by
+  the production artifact checks.
+- S19.3 Malformed encoding, traversal, escaping symlinks, absent files, and
+  undeclared routes return the generic not-found result without exposing a host
+  path or reading outside the artifact.
+- S19.4 A bind failure returns `server.bind_failed`, leaves the promoted
+  artifact valid, and releases the server's ordinary resources.
+
+Out of scope: dev watching, inferred fallback routes, remote hosting, TLS, and
+deployment.
+
+## S20 — Merge an artifact without risking protected content
+
+Delivers: A release maintainer can combine a verified Portfolio artifact with a
+caller-owned deployment tree while protected content and the previous target
+remain intact on collision, concurrent change, or failure.
+
+Touches: merge command, merge engine, artifact reader, lease and recovery
+records, command surface
+
+Depends on: S17
+
+Acceptance:
+
+- S20.1 `merge --artifact-dir <path> --target-dir <path>` requires both paths,
+  accepts an empty protected set as explicit policy, and treats each repeated
+  `--protect` value as one normalized relative subtree.
+- S20.2 Merge validates the source artifact, destination containment, capacity,
+  every collision, and every protected fingerprint before copying into a full
+  sibling staging tree.
+- S20.3 The source read lease and destination writer lease are acquired in
+  normalized-path order; reversed concurrent merges complete without deadlock
+  or one returns the contracted lease error.
+- S20.4 Mutation of a protected subtree after its first fingerprint returns
+  `merge.target_changed`, and collision, capacity, write, verification, and
+  promotion failures leave the original destination byte-for-byte unchanged.
+- S20.5 Interrupted promotion either restores the previous destination or
+  writes a recovery record naming the target, staging, previous tree, and phase;
+  a later merge refuses that state without deleting it.
+- S20.6 Successful merge promotes one verified tree and returns the exact source
+  artifact digest without modifying the source artifact or consumer repository.
+
+Out of scope: choosing protected paths, deleting recovery trees, selecting a
+host, publishing, and deploying.
+
+## S21 — Ship reusable delivery mechanics with release evidence
+
+Delivers: A package maintainer can hand consumers documented, reusable build
+and Pages-delivery mechanics together with a complete statement of what was
+verified, without publishing or deploying on their behalf.
+
+Touches: package documentation, composite action, reusable Pages workflow,
+command surface, packed-consumer fixtures, verification report, extraction
+provenance fixtures
+
+Depends on: S18, S19, S20
+
+Acceptance:
+
+- S21.1 The package readme documents every export, command, required argument,
+  ownership boundary, explicit stylesheet, source timing, fallback state,
+  recovery stop, and non-goal without embedding consumer content, credentials,
+  routes, host, or deployment defaults.
+- S21.2 The composite action accepts an exact package version plus explicit
+  command, root, configuration, output, and merge inputs and forwards them
+  without inventing routes, addresses, credentials, or a latest version.
+- S21.3 The reusable Pages workflow has no trigger, domain, environment,
+  concurrency group, credential, content, or implicit deploy decision; its
+  deploy job declares only the permissions its checked-in fixture proves it
+  needs.
+- S21.4 Typecheck, unit, positive and branch-complete validator, SSR/hydration,
+  interaction, accessibility, CSS/DOM namespace, import-graph, tree-shaking,
+  artifact fault-injection, action/workflow, React-major, Data.Json, and packed
+  tarball fixtures each report `passed`, `failed`, or `not-run` in the release
+  verification output.
+- S21.5 Tarball inspection proves the contracted files, exports, declarations,
+  CSS side effects, peer ranges, Node/Vite isolation, Data.Json isolation, and
+  absence of consumer data and Docusaurus runtime dependencies.
+- S21.6 The release record names every gate that did not run, `git diff --check`
+  passes, source evidence repositories remain unchanged, and no npm publish,
+  tag, deploy, consumer migration, or default-branch merge occurs.
+
+Out of scope: npm publication, tagging, deployment, consumer migration, source
+repository modification, and default-branch merge.
+
+## Landed
+
+None.

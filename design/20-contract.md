@@ -1094,7 +1094,7 @@ publication but does not claim to abort the provider request. JsonResult
 metadata is allowlisted into safe name/value pairs rather than copied
 wholesale.
 
-### Commands — proposed pending U1
+### Commands
 
 The executable is "subzerodev-platform-ui-portfolio".
 
@@ -1106,12 +1106,13 @@ subzerodev-platform-ui-portfolio preview --root <path> --config <path> --out-dir
 subzerodev-platform-ui-portfolio merge --artifact-dir <path> --target-dir <path> [--protect <relative-path>]...
 ~~~
 
-Every shown option is required except repeatable "--protect". Relative config
-and output paths resolve from explicit "--root"; other relative paths resolve
-from the current process directory only after containment checks. Success
-writes one concise line naming the command result and artifact digest when one
-exists. Failure writes ordered safe diagnostics to stderr and exits non-zero.
-Help or an unknown invocation writes usage without loading configuration.
+Every shown option is required except repeatable "--protect". No path, host, or
+port has a default. Relative config and output paths resolve from explicit
+"--root"; other relative paths resolve from the current process directory only
+after containment checks. Success writes one concise line naming the command
+result and artifact digest when one exists. Failure writes ordered safe
+diagnostics to stderr and exits non-zero. Help or an unknown invocation writes
+usage without loading configuration.
 
 Build reads configuration, manifest, declared assets, styles, and build
 sources; it writes only staging, lease/recovery state, and "--out-dir". Check
@@ -1262,9 +1263,4 @@ publication, and deployment are separate work outside this contract phase.
 
 ## Unresolved
 
-- **U1 — command path defaults.** The design requires one explicit
-  configuration per invocation and leaves hosting and deployment policy with
-  the consumer, but it does not determine whether command paths and local
-  server addresses must all be supplied or whether conventional defaults are
-  public API. The command signatures above show the strict explicit form only
-  as the recommended candidate; they are not settled until U1 is decided.
+None.
