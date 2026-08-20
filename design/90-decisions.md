@@ -330,6 +330,156 @@ need.
 
 Reversibility: cheap to add a justified export; removing one is breaking.
 
+### 2026-08-20 — Reframe the package as a Portfolio-specific static builder
+
+Context: the original design targeted a reusable React view library with no
+deployment surface. The approved implementation direction instead transfers the
+clean LandingPage delivery process into this repository, replaces its generic
+README/changelog model with Portfolio rendering, and ports the effective
+Portfolio overlay from Docusaurus to React/Vite.
+
+Chosen: retain external ownership of Portfolio content, copy, routes, branding,
+credentials, hosting, and deployment choice; add an auditable builder and
+delivery surface; and use a pure React root with Node/Vite, browser, and
+Data.Json integrations outside that graph. The clean LandingPage `origin/main`
+commit after UI12 and a recorded effective Portfolio overlay are the required
+implementation evidence.
+
+Rejected: **keep the view-library-only brief** — it cannot own the requested
+build and delivery process. **copy Portfolio content into the package** — it
+would make current consumer data and branding a package default. **retain
+LandingPage's generic README/changelog modes** — it expands the public contract
+instead of replacing it with the requested Portfolio model. **retain
+Docusaurus at runtime** — it would couple the new builder to the framework the
+port is meant to remove.
+
+Reversibility: expensive. The product identity determines exports, dependencies,
+documentation, test fixtures, and the repository's delivery responsibility.
+
+### 2026-08-20 — Version one is the effective enabled Portfolio surface
+
+Context: the reset replaces a broad reusable-view inventory with the effective
+Portfolio presentation. The clean consumer configuration enables the masthead,
+Portfolio, CV, viewer-only Projects, version display, text sizing, and reader
+mode while disabling several components the previous design intended to
+publish.
+
+Chosen: version one contains site chrome, Portfolio, CV, viewer-only Projects,
+version display, controlled text sizing, controlled reader mode, and the fixed
+declared Portfolio style capability. Docusaurus, Giscus, Badges, GitHub panels,
+theme switching, template documentation/demo pages, and administrative surfaces
+are excluded. This supersedes the 2026-08-19 Docusaurus/Giscus export, legacy
+parity, and fixed export-map decisions, plus the explicit-CSS decision's legacy
+stylesheet portion, only where they name the old first-release surface; their
+dependency-isolation and explicit-core-style reasoning remains retained.
+
+Rejected: **keep every old planned renderer** — it expands the reset beyond the
+effective enabled site. **copy every route inherited from the template image** —
+incidental template pages become product contract. **drop reader mode and text
+sizing** — it fails parity with controls the current Portfolio enables.
+
+Reversibility: moderate. A later feature can be added through a new brief and
+contract, but removing a published renderer is breaking.
+
+### 2026-08-20 — Site configuration is executable, closed, and route-explicit
+
+Context: one configuration must declare raw validators, projections, render
+capabilities, routes, styles, navigation, and branding. Validators and
+projections are executable, while source data may be remote and untrusted.
+
+Chosen: load one eagerly validated consumer module with a closed
+Portfolio-specific capability set. Emit one static document per explicit route;
+the package infers no route and accepts no arbitrary Vite plugin in version one.
+
+Rejected: **a remote JSON/YAML model naming adapters** — fetched data would
+select executable code. **an inferred client router** — route existence and
+metadata stop being build-time facts. **unrestricted Vite plugins** — plugins
+can redirect output, widen filesystem access, and bypass public DOM guarantees.
+
+Reversibility: expensive. Configuration shape and route identity govern every
+consumer and artifact.
+
+### 2026-08-20 — Browser sources settle before matching-shell hydration
+
+Context: the brief requires per-source build/browser timing, validation before
+render or hydration, no partial source sets, and React hydration parity. A
+browser value cannot be known during static rendering.
+
+Chosen: build-timed sets settle before SSR. A browser-dependent composition
+server-renders a deterministic unresolved boundary; the browser settles and
+validates the complete set before hydrating that same boundary, then publishes
+the settled ready, explicit-fallback, or error result immediately after the
+hydration commit. Refresh generations are ordered, and only the newest may
+publish.
+
+Rejected: **progressive per-source rendering** — completion order becomes
+visible and composition sees partial input. **hydrate first and validate later**
+— it violates the required validation boundary. **client-only mounting** — it
+abandons the hydration proof. **fetch during SSR** for browser-timed data — it
+silently changes the consumer's timing policy.
+
+Reversibility: expensive. The bootstrap and resource-state lifecycle are public
+runtime behavior.
+
+### 2026-08-20 — Provenance is an immutable three-role manifest
+
+Context: the effective Portfolio is produced from a consumer overlay and
+mutable container tags, while the builder mechanics come from another
+repository. Names, branches, and latest tags cannot reproduce the bytes used for
+parity.
+
+Chosen: record delivery mechanics, consumer overlay, and effective
+template-overlay roles with immutable commits or image digests, clean-tree
+proof, file inventories, content digests, ordered overlay/exclusion rules, and
+the resulting tree digest. The clean LandingPage delivery baseline is commit
+77209c6. Parity fixtures bind to the manifest identity.
+
+Rejected: **repository names and mutable tags only** — the same record can later
+resolve to different content. **copy evidence without a manifest** — origin and
+exclusions become unauditable. **embed product data in provenance** — it crosses
+the consumer ownership boundary.
+
+Reversibility: moderate. A deliberate new baseline creates a new manifest
+identity; an old artifact remains attributable to the old identity.
+
+### 2026-08-20 — Build and merge promote verified staging trees
+
+Context: the LandingPage baseline clears output before building and detects a
+protected merge change after copying. Both approaches can leave the last
+known-good tree partially destroyed, and neither prevents two writers racing.
+
+Chosen: build and merge use sibling staging trees, complete verification, a
+single-writer lease, and promotion with explicit rollback/recovery state. The
+authoritative target changes only at promotion; an ambiguous interrupted
+promotion blocks later writers instead of being cleaned automatically.
+
+Rejected: **clear and write in place** — a late failure destroys the prior
+artifact. **copy then fingerprint** — detection occurs after mutation.
+**unguarded concurrent writers** — interleaving can make an artifact no
+invocation produced.
+
+Reversibility: moderate. Removing staging is mechanically simple but weakens
+the failure and concurrency guarantees; the retained cost is disk space and
+copy time.
+
+### 2026-08-20 — Reader mode and text size are controlled browser capabilities
+
+Context: both controls are enabled in the current Portfolio, but their
+Docusaurus implementations own global Infima selectors, hard-coded storage
+keys, DOM polling, and history monkey-patching.
+
+Chosen: pure controlled renderers own accessible UI and package-namespaced
+states. The browser entrypoint applies declared tokens and persists stable
+choice ids through caller-supplied DOM/storage ports after hydration.
+
+Rejected: **copy the global implementations** — Docusaurus mechanics and
+host-global CSS become package behavior. **remove the controls** — the port
+loses enabled presentation. **put DOM/storage access in root** — SSR and
+dependency isolation fail.
+
+Reversibility: moderate. New browser adapters are additive; moving effects into
+root would be breaking.
+
 ## Open
 
 None.

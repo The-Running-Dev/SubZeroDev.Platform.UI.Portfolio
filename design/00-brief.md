@@ -1,88 +1,92 @@
-# Portfolio UI package brief
+# Portfolio Builder brief
 
 ## Problem
 
-`Docusaurus-Template` contains reusable JSON-driven React views for CV,
-portfolio, project browsing, badges, version information, navigation, GitHub
-links and information, comments, and theme selection. Those views are coupled
-to generated consumer JSON, consumer feature flags, a singleton runtime loader,
-Docusaurus routing/theme APIs, global Infima CSS, and—in the Projects tree—admin
-and authentication code.
+The current Portfolio site is assembled by overlaying a small consumer checkout
+onto a Docusaurus template. Its effective CV, Portfolio, Projects, navigation,
+and visual behavior are therefore coupled to the template runtime, generated
+consumer data, and a deployment image whose contents are not recorded in the
+consumer repository. `SubZeroDev.Platform.UI.LandingPage` already supplies an
+auditable Node/Vite build, preview, merge, package, documentation, and delivery
+process, but its README/changelog site model does not render the Portfolio.
 
-Create a standalone publishable React package,
-`subzerodev-platform-ui-portfolio`, that owns the reusable rendering and
-validation contract without taking ownership of any consumer's product data,
-copy, branding, routes, source map, or hosting.
+Create `subzerodev-platform-ui-portfolio` by transferring that delivery process
+onto a Portfolio-specific React/Vite builder. The builder reproduces the
+effective Portfolio presentation from a recorded clean overlay baseline while
+leaving Portfolio data, copy, branding, links, route composition, hosting, and
+deployment choices outside the package.
 
 ## Required outcome
 
 The package provides:
 
-- pure, validated data-prop renderers for CV, Portfolio, Projects display,
-  Badges, VersionDisplay, NavBarLinks/GitHubLinks, GitHubInfo, and a controlled
-  ThemeSwitcher;
-- optional Giscus, browser, `subzerodev-data-json`, and Docusaurus entrypoints;
-- package-owned versioned view models, schemas, typed validation results, typed
-  data-resolution errors, deterministic selectors, and safe empty states;
-- an explicit CSS entrypoint whose DOM, class, token, and selector surface is
-  semver-governed;
-- an opt-in legacy Docusaurus-template compatibility stylesheet and wrappers
-  that preserve the current template while it migrates;
-- a phased extraction path that does not change `Docusaurus-Template` until the
-  package has parity fixtures and a packed-consumer test.
+- a root React surface of strict, versioned Portfolio view models, validators,
+  pure renderers, deterministic selectors, and namespaced styles;
+- separate Node/Vite builder, browser, and Data.Json entrypoints;
+- `build`, `dev`, `preview`, `check`, and `merge` commands; package
+  documentation; a composite action; and a reusable Pages workflow adapted from
+  the clean LandingPage baseline;
+- an explicit Portfolio site configuration that declares routes, metadata,
+  source timing, consumer raw validation, projection, package validation,
+  styles, navigation, and branding capabilities;
+- build-time and browser-time source resolution that validates before rendering,
+  preserves explicit fallback provenance, and collects failures in declaration
+  order; and
+- provenance recording for the LandingPage baseline, Portfolio baseline, and
+  effective template-overlay inputs used to derive the implementation.
 
 ## Ownership boundary
 
-Consumers own raw JSON models and their validators, every data value, product
-copy, routes, link construction, icon and asset selection, feature flags,
-branding overrides, source identifiers and source maps, cache policy, hosting,
-and deployment.
+Consumers own every product value and raw type, source identifier and source
+map, cache/refresh policy, copy, visual branding, assets, icon selection, route
+composition, links, host, credentials, and deployment decision. A consumer
+configuration declares every route beyond `/` and supplies every cross-route
+destination.
 
-The package owns the public view models accepted by its renderers, validation
-of those models, the timing and reporting contract of optional resolution
-adapters, projection and selector behavior, reusable rendering, safe defaults,
-and its DOM/CSS/export surface.
-
-An adapter therefore has two validation boundaries: the consumer validator
-earns the raw consumer type; after projection, the package validator earns the
-view-model type the renderer consumes. Neither boundary may be replaced by a
-cast.
+The package owns the builder's control flow, the public Portfolio view models,
+validation of those models, projection timing and failure reporting, reusable
+presentation, safe defaults, the package DOM/CSS/export surface, and the
+auditable delivery mechanics. A consumer raw validator earns `TRaw`; its
+projection returns a package candidate; the package validator earns the view
+model. A cast cannot replace either validation boundary.
 
 ## In scope
 
-- CV display, including timeline and technology presentation
-- Portfolio display and its project/technology cross-view projections
-- non-admin Projects browsing, searching, filtering, sorting, and URL-state
-  integration as an optional browser concern
-- Badges processing and display
-- VersionDisplay
-- NavBarLinks and GitHubLinks composition
-- GitHubInfo display
-- Giscus rendering as an optional integration
-- controlled theme selection and optional browser stylesheet application
-- DataProvider replacement, reusable hooks/selectors, schemas, public types,
-  CSS, accessibility, SSR, packaging, and compatibility fixtures
+- Porting the effective Portfolio overlay's masthead, CV, portfolio,
+  viewer-only Projects, enabled supporting controls, and visual behavior to
+  React/Vite without Docusaurus runtime imports
+- explicit per-source `build` or `browser` timing with validated external data
+- static build, development, preview, validation, merge, packed-consumer,
+  documentation, action, and reusable delivery workflows
+- strict model validation, explicit fallback, SSR/hydration, accessibility,
+  DOM/CSS namespace, visual-parity, and dependency-isolation fixtures
+- a recorded extraction provenance manifest
 
 ## Non-goals
 
-- product JSON content or generated data
-- YAML authoring, conversion, watching, or pre-build behavior
-- source-map authoring or hard-coded source ids/URLs/cache policies
+- embedding Portfolio JSON, authored YAML, generated data, remote URLs, copy,
+  branding, routes, icons, assets, credentials, or hosting defaults
+- README/changelog generic-site modes, arbitrary LandingPage adapters, and
+  their public compatibility promise
+- Docusaurus runtime dependencies, theme swizzles, private framework APIs, or
+  global Infima CSS ownership
 - Projects administration, editing, bulk actions, drag/drop, authentication,
-  API calls, storage, sync, or audit history
-- Docusaurus pages, theme swizzles, site configuration, or feature policy
-- deployment, hosting, GitHub Pages workflows, analytics, or publishing
-- changing `Docusaurus-Template` during this design phase
-- preserving accidental bugs, dead files, schema/type drift, unsafe raw HTML,
-  global CSS collisions, or inferred `/projects` and `/demos/*` routes
+  API mutation, storage, sync, or audit history
+- silently accepting invalid input, partial source sets, implicit fallback,
+  inferred `/projects` or `/cv` routes, or unsafe raw HTML
+- modifying `SubZeroDev.Platform.UI.LandingPage` or `Portfolio`, migrating the
+  Portfolio consumer, publishing an npm version, deploying, or merging a pull
+  request as part of this work
 
 ## Definition of done
 
-The new repository has an approved public contract and implements it in
-independently consumable entrypoints. Pure consumers install no Docusaurus,
-Giscus, or Data.Json dependency. All validators have positive and exhaustive
-negative coverage. Root renderers are SSR-safe and deterministic. CSS and DOM
-fixtures enforce their namespaces and documented structure. A packed tarball
-works in React 18 and React 19 fixtures. A Docusaurus fixture demonstrates
-explicit opt-in parity without inferred routes. Only then may a separate
-consumer change migrate `Docusaurus-Template` one wrapper at a time.
+The package is built from the recorded clean LandingPage and effective Portfolio
+baselines, is installable as a packed tarball, and has no Docusaurus dependency
+in its runtime graph. The builder validates build-time sources before rendering
+and browser-time sources before hydration; every exported validator has positive
+and rejection coverage; failures are ordered and visible; and no renderer
+receives partial or unvalidated data. The current Portfolio route set is proven
+through an explicit consumer fixture, while a root-only fixture proves no route
+is inferred. React 18 and 19 SSR/hydration, accessibility, DOM/CSS namespace,
+visual parity, action/workflow, and delivery checks pass. No source repository,
+consumer site, hosted deployment, or npm registry state changes.

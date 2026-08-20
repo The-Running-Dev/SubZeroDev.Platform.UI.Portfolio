@@ -4,11 +4,12 @@ This file is binding for every agent session in this repository.
 
 ## Project identity
 
-`SubZeroDev.Platform.UI.Portfolio` owns reusable React rendering, package-owned
-view-model validation, deterministic data-to-view projection helpers, and the
-optional integration seams it explicitly exports. Consumers own product JSON,
-raw data types, copy, branding, feature policy, route composition, source-map
-contents, credentials, hosting, and deployment.
+`SubZeroDev.Platform.UI.Portfolio` owns a Portfolio-specific static-site
+builder, reusable React rendering, package-owned view-model validation,
+deterministic data-to-view projection helpers, and the optional integration
+seams it explicitly exports. Consumers own product JSON, raw data types, copy,
+branding, feature policy, route composition, source-map contents, credentials,
+hosting, and deployment choices.
 
 The package must not import generated consumer data or infer a consumer route.
 Only `/` may be assumed to exist, and no exported component needs even that
@@ -16,9 +17,10 @@ route unless its caller explicitly supplies it. Missing optional navigation
 renders inert content or nothing; it never invents `/projects`, `/docs`, demo
 routes, or repository URLs.
 
-The root entry point is framework-neutral apart from React. Data.Json, browser,
-Giscus, and Docusaurus integrations live behind separate exports and may not
-leak their dependencies into the root graph.
+The root entry point is framework-neutral apart from React. Node/Vite build
+behavior, Data.Json, and browser integrations live behind separate exports and
+may not leak their dependencies into the root graph. Docusaurus is evidence for
+the Portfolio presentation, not a runtime dependency of this package.
 
 Every package-owned class begins `szd-portfolio-`; every package-owned custom
 property begins `--szd-portfolio-`. Public DOM structure, class names, data
@@ -196,8 +198,10 @@ Two distinctions that are easy to get wrong:
   no failure is silently converted to an empty or apparently fresh page.
 - Pure renderers do not fetch, read feature flags, inspect source maps, mutate
   storage, inspect `window`, or depend on Docusaurus.
-- No admin, authentication, API, storage, YAML authoring, generated data,
-  Docusaurus page, or deployment concern enters this repository.
+- No admin, authentication, API, storage, YAML authoring, generated data, or
+  Docusaurus runtime concern enters this repository. The repository may own an
+  auditable static-build and deployment workflow, but never consumer
+  credentials, a mandatory host, or implicit deployment policy.
 - No public interface or dependency is added without a contract and decision
   entry naming rejected alternatives.
 - Every implementation slice leaves the package buildable and testable.

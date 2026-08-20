@@ -1,376 +1,511 @@
-# Portfolio UI architecture
+# Portfolio Builder architecture
 
-This design is based on a complete read of `Docusaurus-Template/AGENTS.md`, its
-entire `src/components` and `src/hooks` trees, `src/config/schemas.ts`,
-`src/data/jsonLoader.ts`, every top-level `config/*.yml`, and the LandingPage
-repository's governing contract set. It describes the target repository, not a
-change to either evidence repository.
+This design replaces the earlier view-library architecture after the brief's
+approved reset to a Portfolio-specific static builder. The reusable view-model,
+validation, route-safety, SSR, and dependency-isolation decisions remain; the
+old Docusaurus compatibility surface and generic component inventory do not.
 
-## Architectural position
+The implementation evidence has three roles: the clean LandingPage delivery
+baseline supplies process mechanics, the Portfolio repository supplies
+consumer-owned overlay values, and the effective template-overlay build
+supplies the presentation being ported. Evidence is never imported as an
+unversioned dependency or treated as authority for consumer data ownership.
 
-The package is a view library, not a content system. It does not establish a
-canonical CV, project, portfolio, navigation, or GitHub product schema. It
-establishes versioned **view models**: the smallest structures whose semantics
-the reusable renderers own.
+## Data model
 
-A consumer may keep today's YAML-derived shapes, fetch a different service, or
-compose several domain models. Its adapter validates those raw values with
-consumer-owned validators and projects them into package view models. The
-package validates the projection before rendering. This avoids both failure
-modes found in the template: unchecked casts from remote JSON and package
-ownership of product-specific types.
+Exact declarations become canonical in the implementation. The fields below
+state the semantic information the architecture requires while no declaration
+yet exists.
 
-```text
-consumer source map / static import / application state
-                         |
-                         v
-             consumer Validator<T>              consumer-owned
-                         |
-                         v
-                 consumer project(T)
-                         |
-------------------------- boundary --------------------------------
-                         |
-                         v
-             package ViewModelV1 validator       package-owned
-                         |
-                         v
-                 pure React renderer
-```
+### Portfolio site configuration
 
-## Entities and ownership
+One executable, consumer-owned configuration describes one site invocation. It
+is loaded as code because validators, projections, render capabilities, and
+icon/link adapters are functions; it is not fetched as JSON and never names a
+module to execute from remote data.
 
-### Consumer source declaration
+| Field | Semantic type | Ownership and lifecycle |
+| --- | --- | --- |
+| configuration version | positive integer | Package-owned compatibility discriminator; validated at load and held in memory |
+| routes | ordered, non-empty route declarations | Consumer-owned; order is retained for deterministic diagnostics and artifact records |
+| sources | ordered source declarations | Consumer-owned identifiers and policies; package-owned validation and orchestration |
+| metadata | explicit site and route metadata | Consumer-owned copy and URLs; absence stays absent |
+| presentation | enabled renderer and control declarations | Consumer-owned feature choice using package-owned view contracts |
+| styles | ordered style and token capabilities | Consumer-owned branding values and assets; package-owned namespace and cascade rules |
+| navigation | explicit link and route capabilities | Consumer-owned destinations; the package derives no cross-route URL |
+| public assets | declared asset capabilities | Consumer-owned bytes and identities; validated and contained before use |
+| deployment values | optional base path, canonical address, and documentation destination | Consumer-owned and invocation-scoped; no host or deployment decision is defaulted |
 
-A generic declaration names a source, supplies `Validator<T>`, and supplies a
-projection from `T` to a package view model. Its type, identifier, fallback
-value, source-map entry, cache policy, and projection are consumer-owned. The
-optional Data.Json adapter owns when it resolves and validates, how it collects
-failures, and how it reports the result.
+Exactly one configuration exists per command invocation. It has no persisted
+identity of its own. A canonical digest of its serializable declarations and
+the package contract version identifies the configuration in a built artifact;
+functions, secrets, headers, and raw source payloads are excluded from that
+digest record.
 
-### Raw consumer model
+The configuration admits only Portfolio-specific capabilities. It does not
+accept arbitrary bundler plugins in version one. A plugin is executable build
+policy and could redirect output, widen filesystem access, or mutate the public
+DOM outside the package contract; any future plugin seam therefore needs its
+own contract and decision.
 
-The value earned by the consumer validator. It may resemble the current
-`projects.yml`, `portfolioData.yml`, or `cvData.yml`, but no such resemblance is
-part of the npm contract. It is never exported by this package.
+### Route declaration
 
-### Package view model
+A route is the addressable unit of a built site. Its normalized path is its
+identity, uniqueness key, navigation target, and output-document location.
 
-A strict, versioned projection accepted by one renderer family. The canonical
-declarations will live under `src/models/`. Version `1` rejects unknown fields.
-The version belongs to the view contract, not to a consumer's JSON artifact.
-Breaking a view model creates a new version and a semver-major package release;
-the old version remains readable for the compatibility period stated in the
-contract.
+| Field | Semantic type | Derivation and persistence |
+| --- | --- | --- |
+| path | normalized absolute site path | Consumer-declared; validated for uniqueness and containment; persisted as one static document |
+| metadata | title, description, and optional explicit social metadata | Consumer-declared; emitted only when present |
+| presentation | one package-owned route renderer with validated options | Consumer-declared capability; retained in the client bundle when hydration is enabled |
+| required sources | ordered source-identity list | Consumer-declared; resolved to declarations before rendering |
+| hydration policy | build-only or browser-gated | Derived from source timing and renderer needs; cannot weaken source validation |
 
-The package owns these model families:
+Only declared routes are emitted. The root route is the only path the package
+may require; the current Portfolio route set is a consumer fixture, not a
+package default. No inherited template page, demo route, documentation route,
+Portfolio route, Projects route, or CV route exists unless that fixture
+declares it.
 
-- `CvViewModelV1`
-- `PortfolioViewModelV1`
-- `ProjectsViewModelV1`
-- `BadgesViewModelV1`
-- `VersionViewModelV1`
-- `NavLinksViewModelV1`
-- `GitHubInfoViewModelV1`
-- `ThemeListViewModelV1`
-- `GiscusViewModelV1` in the optional Giscus entrypoint
+### Source declaration
 
-These names describe rendering semantics. They do not authorize the package to
-own source URLs, copy defaults, route policy, or consumer storage.
+A source declaration is identified by a consumer-owned id unique within the
+configuration.
 
-### Resolved view state
+| Field | Semantic type | Ownership and lifecycle |
+| --- | --- | --- |
+| id | non-empty stable string | Consumer-owned identity; safe diagnostic context, never a URL inference |
+| timing | build or browser | Consumer-owned resolution choice; immutable for one invocation |
+| resolver input | provider-owned source capability | Consumer-owned map, URL, cache, and refresh policy; credentials never enter public output |
+| raw validator | unknown to consumer validation result | Consumer-owned; earns the raw type without throwing |
+| projection | validated raw value to unknown candidate | Consumer-owned; package catches a thrown projection |
+| view validator | unknown to package validation result | Package-owned; earns the renderer's versioned view model |
+| fallback | absent or an explicit view-model candidate | Consumer-owned policy; package-validated and never implicit |
 
-The optional adapter returns a tagged state rather than the current tuple of
-`data`, `loading`, `error`, and untyped metadata:
+Declarations persist only as consumer source. During a build they become
+in-memory resolution records. Browser declarations are compiled into the
+browser entry as code; only a public, credential-free provider description may
+be serialized into a document.
 
-```text
-idle -> loading -> ready
-                -> fallback
-                -> error
-```
+### Portfolio view models
 
-`fallback` contains both validated fallback data and the error that caused its
-use. A caller cannot accidentally present a fallback as a fresh remote result.
-Pure renderers never receive this state; a resource boundary selects what to
-render.
+Package-owned view models are strict, versioned objects. Their identities are
+their model family plus version, not the source that produced them. Unknown
+fields and unsupported versions fail. Their values live in memory during
+resolution and rendering; validated build-time models may be serialized into a
+document bootstrap record so the client hydrates the exact server value.
 
-### Renderer
+Version one has these presentation families:
 
-A pure React component that receives a validated view model and explicit
-rendering options. It performs no I/O, feature lookup, route inference, storage
-access, or framework lookup. It renders safely for empty optional collections.
-Rich HTML is not accepted as an ordinary string. Consumers needing legacy HTML
-must opt into an explicit rich-text renderer at the wrapper boundary.
+- site chrome: masthead identity, desktop and mobile navigation, footer, and
+  explicit link capabilities;
+- CV: header, section ordering, roles, achievements, projects, education,
+  timeline presentation, and safe rich-content slots;
+- portfolio overview: header, statistics, categories, technologies, recent
+  projects, and consumer-supplied cross-view links;
+- viewer-only Projects: categories, project cards, search/filter/sort inputs,
+  statistics, and controlled query state;
+- version display: explicit version text, prefix, optional destination, and
+  presentation state, with no clock-derived fallback;
+- text-size control: declared choices, stable choice ids, labels, scale tokens,
+  and the declared default; and
+- reader-mode control: controlled enabled state, accessible labels, and a
+  package-namespaced presentation variant.
 
-### Link policy
+The default Portfolio theme is a declared style capability rather than a theme
+switcher model. Disabled baseline features—Badges, Giscus, GitHub information
+and link panels, theme switching, administration, authentication, editor
+controls, and template documentation/demo surfaces—are outside version one.
+Adding one is a brief, contract, and decision change rather than an inventory
+discovery during implementation.
 
-Navigation is a consumer capability. Core renderers accept an optional link
-factory or link component. When neither is supplied, project categories,
-technology tags, and other cross-view affordances render as inert content.
-In-page fragment navigation generated inside one component may use fragment
-links because it does not assume another route.
+Consumer copy, icons, assets, raw HTML, URLs, and feature policy are not derived
+view-model defaults. Ordinary strings render as text. A rich-content capability
+is explicit and owns its own trust boundary.
 
-### CSS surface
+### Resolution record
 
-The package owns one namespaced stylesheet and optional component stylesheets
-re-exported through `./styles.css`. All owned selectors are rooted in
-`.szd-portfolio-*`; all tokens begin `--szd-portfolio-*`. Default values may
-fall back to Infima variables in the Docusaurus compatibility sheet, but the
-core sheet does not require Infima.
+Each declaration produces one tagged in-memory record:
 
-`./legacy-docusaurus.css` maps old template class expectations onto the new
-owned tokens for the migration window. It is opt-in and not the long-term
-contract.
+    idle -> loading -> ready
+                    -> fallback
+                    -> error
 
-## Closed extraction inventory
+Ready carries data that passed raw validation, projection, and package
+validation. Fallback carries package-validated fallback data plus the primary
+error. Error carries no renderable data. Records include the source identity,
+ordered validation issues, provider metadata safe for diagnostics, and the
+original cause when available. They never include credentials, request
+headers, or raw rejected payloads.
 
-The following inventory is closed for version 1. “Include” means owned by this
-repository. “Wrapper” means included only behind the named optional entrypoint
-or intentionally left in the consumer. “Exclude” means it must not be copied.
+For a route, a resolved-source set is identified by the ordered identities in
+that route declaration. It exists only when every required declaration has
+settled. Composition receives the complete set or does not run.
 
-| Audited surface | Core package | Optional wrapper/adapter | Explicit exclusion |
-| --- | --- | --- | --- |
-| CV | Pure CV sections, timeline ordering, deterministic period formatting, technology display, view model and validator | Data.Json resource; Docusaurus project-tag link wrapper; explicit legacy rich-text renderer | generated `cvData`, feature flags, `DebugInfo`, inferred `/projects`, implicit `dangerouslySetInnerHTML` |
-| Portfolio | Header, stats, categories, recent-project cards, technology cards, pure flatten/join selectors, view model and validator | Data.Json resource; consumer-supplied project join; Docusaurus link wrapper | consumer hooks, generated data, `@theme/Heading`, fixed project route, duplicate legacy project types |
-| Projects display | Viewer-only processor, search/filter/sort utilities, filters, results, cards, controlled display, view model and validator | Data.Json resource; browser URL/search persistence controller | `Projects`, `ProjectsManager`, and `ProjectsDisplay` as copied facades; every admin/edit/auth/API/storage module and admin stylesheet |
-| Badges | Placeholder substitution, group selection, resolved icon slot, renderer, view model and validator | Consumer icon registry; Data.Json resource | generated defaults, `IconDefinition` in raw model, inline Infima styling, current `icon`/`iconName` mismatch |
-| VersionDisplay | Deterministic prop renderer and validator | Data.Json/static consumer wrapper | generated version import, current-date version invention, hard-coded `v1.0.0` error fallback |
-| NavBarLinks | Pure link rendering, external classification, controlled dropdown, active-path input, view model and validator | Docusaurus `Link` and location wrapper; Data.Json/static wrapper; icon registry | generated links, `window.location` in core, demo routes, private SVG sprite assumptions |
-| GitHubLinks | Thin semantic composition over NavBarLinks; compatible type aliases | Consumer data adapter | duplicate renderer/models and unused `GitHubLinks.css` |
-| GiscusComments | None in root | `./giscus` prop renderer and schema; `./docusaurus` color-mode wrapper | feature flag, generated config, hard-coded setup copy, shadowed duplicate implementation |
-| ThemeSwitcher | Controlled theme menu, selection helper, view model and validator | `./browser` stylesheet/storage controller; `./docusaurus` base-path wrapper | generated themes, private Docusaurus import, feature flag, extensionless `ConfigurableThemeSwitcher` |
-| GitHubInfo | Pure config display, configurable labels/slots, view model and validator | Consumer `useGitHubConfig` wrapper remains consumer-owned | implicit generated config access, duplicate schema systems, product-specific headings as fixed copy |
-| DataProvider | Tagged result/error/validator contracts only | `./data-json` validated resource and preload helpers | current feature enum, feature-to-source map, singleton loader, empty-id hook call, untyped metadata |
-| Hooks | Pure selectors; controlled project-view state; controlled theme state | Data.Json hooks in `./data-json`; DOM/storage/history hooks in `./browser`; Docusaurus composition in `./docusaurus` | `useAuthenticatedFetch`, admin hooks, application `useAppInitialization`, duplicate static Projects hook |
-| Schemas | Strict package view-model schemas and validation helpers | Consumer supplies raw validators; adapters compose both layers | copying current drifted consumer schemas as canonical product schemas |
-| Types | View models, renderer props, slots, resource state, error/issue types | Data.Json and Docusaurus adapter types under their entrypoints | consumer raw types, admin/sync types, `any`-based metadata, FontAwesome types in core |
-| CSS | Rewritten renderer CSS with governed namespace/tokens | legacy Docusaurus compatibility sheet | admin CSS, unused GitHubLinks CSS, unqualified `.container`, `.stats`, `.projectCard`, `.active`, and direct Infima ownership |
-| Supporting components | Minimal Loading, Tooltip, and ErrorBoundary only if needed by exported DOM and covered by the same namespace | Browser measurement stays in `./browser` | DebugInfo, ConfigurationManager, Auth, Custom404, ReaderMode, TextSizeSwitcher, RelatedResources |
+### Render plan and browser bootstrap
 
-Nothing outside this table may enter the first public release without amending
-the brief, contract, and decision record.
+After configuration and build-time resolution, the builder derives an
+in-memory render plan. It pairs each route with normalized metadata, its
+complete validated build-time model set, a browser-source gate when required,
+style order, public assets, and the one presentation composer that owns its
+document.
 
-## Current direct and indirect JSON-consumer audit
+A build-only route is server-rendered from its complete model and embeds the
+same validated value for hydration. A browser-gated route server-renders a
+deterministic unresolved boundary for the composition that needs browser data.
+The browser resolves and validates the whole required set before hydration,
+hydrates that same unresolved boundary, and publishes the already-settled
+result immediately after the hydration commit. The data renderer therefore
+never sees a partial set, and the first hydrated tree matches the static HTML.
 
-This is the closed provenance map for the top-level YAML inputs and runtime
-source map inspected in `Docusaurus-Template`. “Direct” means a module imports a
-generated value or calls `useJson`; “indirect” means it receives that value
-through a hook, provider, feature gate, or another component. The map records
-current evidence only. None of these consumer-owned identifiers or shapes
-becomes package API.
+### Presentation preferences
 
-| Consumer-owned input | Direct current reader | Indirect consumers and behavior | Extraction disposition |
-| --- | --- | --- | --- |
-| `config/sources.public.yml` | generated source map in `src/data/jsonLoader.ts` | `JsonProvider`; `DataProvider`; root `usePortfolio`/`useProjects`; `useAppInitialization` preloads only portfolio/projects | Exclude map, URLs, ids, cache policy, singleton, and preload policy. `./data-json` accepts explicit declarations/provider capabilities. |
-| source id `cv` and `config/cvData.yml` | `DataProvider` calls `useJson('cv')`; `CV/constants.ts` imports generated `cvData` as default | `CV` receives remote-or-default data after `schemaRegistry.cv`; its rendering path treats the reported error separately from fallback data | Include renderer/view validator. Consumer owns raw validator, projection, source declaration, feature gate, and explicit fallback. |
-| source id `portfolio` and `config/portfolioData.yml` | root `usePortfolio` calls `useJson('portfolio')`; no active component import of generated `portfolioData` was found | `Portfolio`, `useProjectFiltering`, and `useTechnologyMapping`; the latter two also depend on projects | Include pure Portfolio and join/selectors. Exclude the active hook, source id, authored/generated raw data, and the apparently unused static path. |
-| source id `projects` and `config/projects.yml` | root `useProjects` calls `useJson('projects')`; `Projects/constants.ts` also imports generated `projects` | active `Projects` and Portfolio hooks use the remote root hook; the duplicate `components/Projects/hooks/useProjects` uses only static generated data and appears production-unreferenced | Include viewer/selectors only. Exclude both consumer hooks, generated defaults, app preload/refetch policy, and admin graph. |
-| `config/badges.yml` | `Badges/constants.ts` imports generated `badges` | `Badges` passes it through `DataProvider`, but Badges has no runtime source mapping, so it is treated as static default data; feature gating comes from global config | Include renderer/view validator and placeholder selector. Consumer adapter owns raw validation, icon registry, feature policy, and data. |
-| `config/version.yml` | `VersionDisplay/constants.ts` imports generated `version` | `VersionDisplay` passes it through the static branch of `DataProvider` | Include deterministic renderer/view validator. Consumer owns version value/link and any explicit fallback. |
-| `config/navBarLinks.yml` | `NavBarLinks.tsx` imports generated `navBarLinks` | `FeatureComponent` supplies it to the renderer and global features gate it | Include prop renderer/view validator. Consumer/Docusaurus wrapper owns data, feature policy, route capability, icons, and current location. |
-| `config/gitHubLinks.yml` | `GitHubLinks.tsx` imports generated `gitHubLinks` | `FeatureComponent` gates it, then delegates to `NavBarLinks` | Keep only the semantic renderer alias and compatible props; consumer adapter owns the generated value. |
-| `config/giscus.yml` | feature-gated `GiscusComments.tsx` imports generated `giscus` | Docusaurus color mode and `@giscus/react` consume it; a competing prop-driven implementation is shadowed by the directory export | Put validated prop renderer in `./giscus` and color-mode composition in `./docusaurus`; exclude generated config, feature flag, and setup copy. |
-| `config/gitHub.yml` | `GitHubConfig/configLoader.ts` imports generated `gitHub`, validates/caches it | `useGitHubConfig` feeds `GitHubInfo` and helper functions | Include only pure GitHubInfo display/view validation. Keep raw GitHub config, cache, helpers, and hook consumer-owned. |
-| `config/globalConfig.yml` | `useFeaturesConfig` imports generated `globalConfig` | `FeatureComponent`, DataProvider, Portfolio, Projects, Giscus, ThemeSwitcher, Nav/GitHub links, initialization hooks, and unrelated UI consume its feature flags | Exclude completely: feature policy and pre-build/site configuration are application concerns. |
-| generated `themes` value (not a top-level `config/*.yml` in this checkout) | `ThemeSwitcher/themes.ts` imports `data.themes` | ThemeSwitcher and the Docusaurus root theme initializer resolve/apply/persist it | Include controlled view and selection helper; browser and Docusaurus behavior stay in optional entries; generated provenance stays consumer-owned. |
+Reader mode and text size are browser-owned state over pure controlled
+renderers. Each preference has a declared default and a stable choice id. The
+browser integration may persist the chosen id through a caller-supplied storage
+port and applies only package-prefixed attributes and tokens. Invalid or absent
+saved values recover to the declared default after hydration. No package code
+patches history methods, polls the DOM, or owns Docusaurus/Infima classes.
 
-`useAuthenticatedFetch` and every Projects authentication/administration hook
-consume API/auth state rather than reusable public JSON and are excluded. The
-YAML authoring and YAML-to-generated-data pipeline are evidence inputs only and
-remain out of scope.
+### Extraction provenance manifest
 
-## Evidence from the embedded implementation
+The package persists a tracked, immutable manifest for the evidence used to
+derive the port. Its identity is the digest of its canonical contents. It
+records three baseline roles:
 
-The boundary is driven by concrete defects and couplings, not aesthetic
-preference:
+- delivery mechanics: repository identity, immutable commit, relevant file
+  inventory, and content digests from the clean LandingPage baseline;
+- consumer overlay: repository identity, immutable commit, clean-tree proof,
+  and the inventory and digests of Portfolio-owned inputs; and
+- effective template overlay: immutable container-image digest, template tree
+  inventory and digests, the ordered overlay/exclusion rules, and the digest of
+  the resulting clean effective tree.
 
-- `Badges` reads `iconName`, while authored data/schema use `icon`; its raw and
-  resolved icon types are one type today.
-- Projects runtime data is a top-level array, while one component schema expects
-  `{categories: [...]}`.
-- NavBar's model and schema disagree on most optional fields and the schema has
-  an unused `ariaLabel` field.
-- Project, Portfolio, and CV TypeScript models are narrower than the validators
-  that earn them (`null`, recursive mixed technology nodes, numeric stats, and
-  record-shaped achievements are examples).
-- Giscus has competing `index.ts` and `index.tsx` implementations; the reusable
-  prop version is shadowed by the feature-gated version.
-- the active Portfolio and Projects views use direct remote hooks, while CV uses
-  `DataProvider`; the template already has two resolution paths.
-- `DataProvider` may return fallback data and a non-null error together, and its
-  consumers disagree about which wins.
-- the loader silently substitutes an empty map after missing/invalid generated
-  configuration; all reads then become unresolved.
-- Projects viewer files import admin components, auth, API types, storage, and
-  admin CSS even when rendered with `isAdmin=false`.
-- Portfolio and CV build `/projects?filter=...` when the consumer supplied no
-  route, contradicting the template's own downstream rule.
-- component CSS owns global names shared between Portfolio and Projects and
-  assumes Infima tokens.
+Mutable tags such as latest may be recorded as observations but never as
+baseline identity. The manifest contains no consumer credentials or embedded
+product data. Visual, DOM, accessibility, route, and interaction fixtures point
+to the manifest identity so a later baseline refresh cannot silently rewrite
+what “parity” meant.
 
-The package contract resolves these rather than preserving them as accidental
-compatibility.
+### Built artifact
+
+The built output tree is package-owned persisted state. It contains one static
+document per declared route, bundled browser assets, explicitly declared public
+assets and styles, and an artifact record. The artifact record derives its
+identity from package version, provenance-manifest identity, configuration
+digest, normalized route order, and emitted file digests. It records source ids,
+timing, model versions, and fallback status, but not raw values or secret
+provider configuration.
+
+Build staging state and a single-writer lease are temporary persisted state
+adjacent to the target. They are removed after success or an ordinary failure.
+An interrupted promotion may leave a named staging or recovery tree; the next
+writer detects and reports it rather than guessing which tree is authoritative.
 
 ## Module boundaries
 
-The target dependency graph is one-way:
+The runtime graph is deliberately layered:
 
-| Module family | Owns | May depend on |
-| --- | --- | --- |
-| `src/contracts` | validation result, issue and error codes, resource state | nothing in-package |
-| `src/models` | strict versioned view models and validators | contracts |
-| `src/selectors` | deterministic projection helpers, project filtering/statistics, theme selection | models |
-| `src/components` | pure React renderers and DOM contract | models, selectors |
-| `src/browser` | DOM, history, storage, clock and viewport ports/hooks | root public modules |
-| `src/giscus` | `@giscus/react` renderer | models/contracts, React |
-| `src/data-json` | Data.Json resolution, consumer validation, projection, package validation, failure collection | root public modules, `subzerodev-data-json/react` |
-| `src/docusaurus` | Link, current-location, base-path and color-mode composition | root, browser/giscus as needed, public Docusaurus APIs |
-| `src/index.ts` | deliberate root facade | contracts, models, selectors, components |
+    contracts and validation
+            |
+            +--> versioned view models --> deterministic selectors
+            |                                  |
+            +--------------------------------> pure React presentation --> namespaced styles
+            |
+            +--> resolution kernel <---------- source declarations
+                        |                              |
+                        +--> browser integration      +--> Data.Json integration
+                        |
+    configuration declaration ------------------------+
+            |
+            v
+    Node configuration loader --> route planner --> document compiler --> artifact writer
+                 |                    ^                    ^                 ^
+                 +--> provenance -----+                    |                 |
+                 +--> source orchestration ---------------+-----------------+
 
-The root graph must contain no import from the four optional module families.
-Optional entrypoints may depend inward; core never depends outward.
+    static server --> built artifact
+    merge engine  --> built artifact + caller deployment tree
+    command surface --> loader, planner, compiler, writer, server, merge
+    delivery assets --> command surface
 
-## Renderer composition
-
-### CV
-
-`Cv` owns document structure and sorting. It accepts consumer copy through its
-view model and UI labels through props. “Present” is interpreted with an
-explicit `now`/clock option at selectors, defaulted once per render. Technology
-links require a supplied link factory. Legacy rich text is an explicit wrapper
-slot; the safe default renders text.
-
-### Portfolio
-
-`Portfolio` consumes one already-composed view model. Cross-dataset work—recent
-projects and technology-to-project mapping—is performed by pure selectors or a
-consumer projection before render. Category and tag destinations are optional.
-No `@theme/Heading`, feature config, or data hook remains.
-
-### Projects
-
-`Projects` is a controlled viewer. Its core controller accepts data, query,
-filter, date policy, and clock. Pure processing returns the displayed categories
-and filter metadata. `./browser` may synchronize filter state with query params
-and storage; the core component can be server-rendered without either. Admin
-selection/editing callbacks do not exist in the public model.
-
-### Navigation and GitHub links
-
-`NavBarLinks` accepts explicit `currentPath`, `renderInternalLink`, and icon
-rendering capabilities. Without them it emits ordinary safe anchors and no
-active-route inference. `GitHubLinks` only gives the same view a semantic export
-name; it owns no data import or CSS.
-
-### Themes
-
-The core ThemeSwitcher is controlled. The browser adapter resolves CSS hrefs,
-applies one marked `<link>`, and persists through a caller-provided storage port.
-The storage key is configurable and has a package default; the Docusaurus
-wrapper resolves base URLs through public Docusaurus APIs. An unknown saved
-theme selects the declared default and reports no error because saved preference
-absence/staleness is recoverable UI state, not malformed declared data.
-
-## Resolution and validation flow
-
-For one source:
-
-1. The caller supplies a source id, required `Validator<T>`, required projection
-   into a package view model, and optional validated fallback declaration.
-2. Data.Json resolves `unknown` under its own provider.
-3. Transport failure becomes a stable package error with the original cause and
-   source context.
-4. The consumer validator runs exactly once per new payload identity. Failure
-   prevents projection.
-5. Projection runs. A thrown projection becomes `projection.failed`.
-6. The package view-model validator runs. Failure becomes
-   `view.validation_failed` with path issues.
-7. Only `ready` or explicit `fallback` contains renderable data.
-
-For multiple sources, steps 2–6 run for every declaration; failures are
-collected in declaration order and composition runs only if every declaration
-succeeds. The adapter neither invents retries nor changes Data.Json cache
-policy. Refresh with a manual cache requires an explicit loader/invalidator port;
-the package does not reach a consumer singleton.
-
-## Failure and fallback semantics
-
-| Boundary | Detection | Result | Default UI consequence |
+| Module family | Owns | Depends on | Exposes |
 | --- | --- | --- | --- |
-| Missing optional content | package view validator accepts absence | `ready` | corresponding section omitted |
-| Invalid declared view content | strict view validator | `error` | renderer is not called |
-| Source unresolved/transport failure | Data.Json result | `error`, preserving cause/context | caller's error slot or `null` |
-| Consumer raw validation failure | required consumer validator | `error` | projection and renderer do not run |
-| Projection throws | adapter | `error` | renderer does not run |
-| Explicit fallback validates | adapter after primary failure | `fallback` with data and original error | caller may render data and disclose stale/fallback state |
-| Explicit fallback is invalid | package validator | aggregate `fallback.invalid` error | nothing rendered |
-| Missing Giscus required config | Giscus validator | error or caller-provided unconfigured slot | no hard-coded setup instructions |
-| Unknown saved theme | browser adapter | recover to declared default | controlled UI remains usable |
-| Missing project-route factory | renderer capability check | not an error | inert tags/cards; no link |
+| contracts and validation | validation results, issue paths, stable error categories, tagged resolution states | nothing in-package | framework-neutral contracts |
+| versioned view models | strict rendering semantics and package validators | contracts | models and validators accepted by presentation |
+| deterministic selectors | sorting, filtering, joins, eligibility, and time-dependent projection through explicit clocks | view models | pure functions |
+| pure React presentation | site chrome, Portfolio routes, supporting controls, DOM and accessibility structure | view models, selectors, React | data-prop renderers and controlled components |
+| namespaced styles | package classes, tokens, states, responsive and reader/text-size variants | public presentation contract | explicit style asset; no JavaScript side effect |
+| resolution kernel | validation order, projection, fallback, aggregation, and cancellation-independent outcomes | contracts, view models | provider-neutral single- and multi-source operations |
+| browser integration | pre-hydration source gate, hydration transition, URL/search state, storage and DOM ports | root public modules, resolution kernel | SSR-safe browser controllers |
+| Data.Json integration | provider translation for build and browser source capabilities | resolution kernel and Data.Json public APIs | explicit adapter functions; no global loader or inferred ids |
+| configuration declaration | eager structural validation of executable site configuration | contracts and public model types | one Portfolio-specific definition seam |
+| Node configuration loader | contained module loading and configuration classification | configuration declaration | one validated configuration per invocation |
+| provenance verifier | immutable baseline identities, canonical manifest validation, evidence capture, and fixture linkage | Node filesystem plus maintainer-only repository/registry inspection ports | verified manifest or ordered capture failures |
+| source orchestrator | build-time provider execution and ordered aggregation | resolution kernel, configured provider adapters | complete validated source sets |
+| route planner | path normalization, uniqueness, route/source joins, style and asset plans | validated configuration, source orchestrator, provenance | deterministic render plans |
+| document compiler | the single Portfolio document writer, SSR shell, hydration bootstrap, and Vite compilation | route plans, pure presentation | a staged output tree |
+| artifact writer | containment, writer lease, staging, manifesting, promotion, and recovery detection | document compiler output | one committed built artifact |
+| static server | read-only path resolution, containment, content types, and route-index serving | built artifact | preview service |
+| merge engine | collision analysis, protected-subtree proof, staged deployment-tree composition | built artifact and caller target | committed merged tree or no target change |
+| command surface | command arguments and the single choice of operational path | Node module families | build, dev, preview, check, and merge behavior |
+| delivery assets | composite action, reusable Pages workflow, and package documentation | published command surface | reusable mechanics without trigger, host, or deploy decision defaults |
 
-Errors do not silently turn into empty models. Pure renderers may return `null`
-for an intentionally empty optional collection, but malformed declared data
-cannot reach them.
+The graph is acyclic. Optional integration modules depend inward on the root
+contracts; the root never imports Node, Vite, Data.Json, browser, workflow, or
+consumer modules. Delivery assets invoke a published command and are not
+runtime dependencies. Docusaurus is evidence only and appears nowhere in the
+package graph.
 
-## Dependency and package layout
+There is one document compiler for all declared Portfolio routes. Route kind,
+source timing, and whether a data boundary is initially resolved may vary, but
+none creates a private HTML writer. There is likewise one operational-path
+decision in the command surface; individual commands do not rediscover the
+configuration or implement competing build semantics.
 
-Public export paths:
+## Control flow
 
-```text
-subzerodev-platform-ui-portfolio
-subzerodev-platform-ui-portfolio/browser
-subzerodev-platform-ui-portfolio/data-json
-subzerodev-platform-ui-portfolio/docusaurus
-subzerodev-platform-ui-portfolio/giscus
-subzerodev-platform-ui-portfolio/styles.css
-subzerodev-platform-ui-portfolio/legacy-docusaurus.css
-```
+### Build or check, triggered by a command invocation
 
-Required peers are React and React DOM. Zod is an implementation dependency so
-one validator implementation owns package view-model semantics. Data.Json,
-Giscus, and Docusaurus packages are optional peers attached only to their export
-paths. FontAwesome is not a core dependency: icon names remain consumer data and
-icon resolution is a slot. `clsx`, if used, is private implementation detail.
+1. Acquire the target's single-writer lease and refuse unresolved recovery
+   state from an interrupted earlier writer.
+2. Load the executable consumer configuration, validate its version and closed
+   capability set, normalize deployment values, and validate every route,
+   source, style, asset, and cross-reference before writing.
+3. Validate the tracked extraction manifest's schema, canonical digest, and
+   fixture bindings. Ordinary consumer builds do not contact evidence
+   repositories or registries. External inspection occurs only when a
+   maintainer creates or deliberately refreshes the manifest; that capture
+   refuses a dirty baseline, mutable-only image identity, or mismatched
+   inventory.
+4. Resolve all build-timed sources. Independent I/O may run concurrently, but
+   results and failures are collected in declaration order. Each value crosses
+   raw validation, projection, and package validation. Composition does not run
+   unless every required build source is ready or explicit fallback.
+5. Derive the complete route plans. Reject duplicate or escaping paths,
+   undeclared navigation destinations, missing assets, source timing conflicts,
+   and route/source cycles before compilation.
+6. Render every route through the single document compiler. Build-only routes
+   receive their complete validated models; browser-gated boundaries receive
+   the deterministic unresolved shell. Compile browser assets and copy public
+   assets into a fresh staging tree.
+7. Run artifact checks over the staged tree and create its artifact record.
+   Check additionally runs the configured package verification gates but does
+   not publish, deploy, or mutate a consumer repository.
+8. For build, promote the verified staging tree as one committed artifact,
+   retaining the prior artifact until promotion can succeed. Release the lease.
 
-The first release pins/declares only versions proven in packed fixtures. The
-current evidence checkout uses React 19, Zod 4, Data.Json 0.2.0, Giscus React 3,
-and Docusaurus 3.10; supported ranges are a release decision, not inferred from
-this design alone.
+The builder never falls through from a failed declared input to stale output.
+An existing successful artifact may remain available after a failed build, but
+the command exits non-zero and does not describe that artifact as current.
 
-## Compatibility-preserving migration
+### Browser bootstrap, triggered by loading a built route
 
-Migration is additive and wrapper-first:
+1. Parse and validate the inert bootstrap record without executing data from
+   it. Verify the route and model versions match the compiled client.
+2. For a build-only route, hydrate using the exact serialized validated models
+   used for SSR.
+3. For a browser-gated route, resolve all required browser sources through the
+   explicit provider. Independent requests may overlap; raw validation,
+   projection, and package validation complete for every source, with failures
+   ordered by declaration.
+4. Hydrate the server's unresolved boundary only after the set has settled.
+   Immediately after hydration commits, publish exactly one ready, explicit
+   fallback, or error result to the resource boundary.
+5. Controlled browser features may then restore validated text-size,
+   reader-mode, search, and URL preferences through injected ports. Refresh
+   creates a new generation; only the newest generation may publish.
 
-1. Build the new package independently; do not edit the template.
-2. Capture current template DOM and behavior fixtures for each included viewer,
-   including its current explicit route choices.
-3. Implement the new namespaced DOM and an opt-in legacy compatibility sheet.
-4. Build consumer-owned Docusaurus wrappers that import generated data, feature
-   flags, icons, routes, and copy, then project into package view models.
-5. Prove the wrappers against the template fixtures and `onBrokenLinks: throw`
-   with a consumer that has only `/`.
-6. In a later consumer change, replace one embedded component at a time. The
-   wrapper explicitly opts into `/projects` only where that consumer owns it.
-7. Keep old component modules as re-exporting shims for one template release.
-8. Remove shims and the legacy stylesheet only in a separately announced
-   breaking template release after all consumers migrate.
+No product renderer is invoked while a required browser source is unresolved,
+and a failing auxiliary source cannot expose a partial route. The package does
+not retry or change consumer cache policy. A caller-requested refresh uses an
+explicit provider capability.
 
-Compatibility means the existing template can preserve its intended display
-through explicit adapters. It does not mean the new package reproduces dead CSS,
-shadowed modules, schema drift, unsafe HTML, silent fallback, admin imports, or
-unsafe route assumptions.
+### Develop, preview, merge, and deliver
+
+Dev loads and validates through the same path as build, verifies provenance,
+and resolves build-timed sources before starting. It holds one configuration
+generation at a time. File changes are coalesced; a new generation starts only
+after the current one settles, and the last observed change wins. Documents are
+generated by the same compiler as production. A failed regeneration remains
+visible as a development error and never substitutes a partly updated model.
+
+Preview runs a current staged build first, commits it through the ordinary
+artifact writer, and then serves that exact tree through the shared static
+server. It has no independent route or content-type behavior.
+
+Merge acquires a read-stability lease on the built artifact and a writer lease
+on the destination in normalized-path order, validates both, fingerprints every
+protected subtree, analyzes all collisions, and composes a full sibling staging
+tree. It verifies protected fingerprints and the resulting artifact before
+promotion. The caller target changes only when the staged merge is complete;
+promotion uses the same recovery protocol as a build.
+
+The composite action invokes one named command with an exact package version.
+The reusable workflow checks out the caller, optionally obtains a separately
+built documentation artifact, invokes build and merge, uploads the resulting
+tree, and deploys it. The workflow declares the permissions required by its
+deploy job but owns no trigger, domain, environment policy, concurrency policy,
+credentials, or decision to deploy; those remain with the caller.
+
+## Failure modes
+
+Every failure is detected at the boundary that can still prevent invalid data
+or a partial tree from becoming authoritative. Errors identify the declarer,
+route, source, or target and preserve safe causes; they never include raw
+payloads, credentials, or headers.
+
+| Dependency or boundary | Detection | System behavior and user-visible result | State left behind |
+| --- | --- | --- | --- |
+| configuration module | load throws, version/capability validation fails, or a remote document attempts to name executable code | command exits with ordered declaration errors; no server starts | prior committed artifact unchanged; temporary lease removed |
+| provenance manifest | tracked schema, canonical digest, or fixture binding is missing or mismatched | build/check/dev refuses and names the baseline role | prior artifact unchanged; no external evidence is queried and no baseline is rewritten automatically |
+| provenance capture | evidence checkout is dirty/unavailable, or an image has only a mutable identity | maintainer capture refuses to create or refresh the manifest | existing manifest remains unchanged |
+| route and navigation declarations | invalid/duplicate/escaping path, undeclared cross-route destination, or route/source cycle | planning fails before compilation | prior artifact unchanged |
+| source provider | id unresolved, transport/read failure, forbidden private browser capability, or invalid provider metadata | build fails; browser boundary publishes error after matching-shell hydration | build leaves prior artifact; browser leaves the static shell plus caller error UI |
+| consumer raw validator | rejects or throws | projection is skipped; error identifies source and validation issues | no raw value is persisted |
+| projection | throws | package validation and renderer are skipped | no candidate is persisted |
+| package view validator | rejects primary or fallback candidate | renderer is skipped; invalid fallback is an error, not empty content | no invalid model enters bootstrap or artifact |
+| multi-source route | one or more declarations fail | every declaration settles, failures are reported in declaration order, composition does not run | no partial composed model exists |
+| declared style or asset | missing, unreadable, escaping, colliding, or disallowed format | staging fails before promotion; UI is not published unstyled | prior artifact unchanged; removable staging may remain after interruption |
+| SSR or bundler | render, bundle, or package-internal compilation step fails | route compilation stops and build exits non-zero | prior artifact unchanged; staging retained only when needed for diagnosis/recovery |
+| artifact verification | manifest, DOM/CSS namespace, route, hydration, accessibility, or file-digest check fails | staging is rejected | prior artifact unchanged |
+| promotion | rename/swap fails | rollback is attempted; command reports the authoritative and recovery trees explicitly | prior artifact restored when possible; otherwise named recovery state blocks future writers |
+| browser bootstrap | bootstrap parse/version fails | hydration is refused and caller error UI replaces the unresolved boundary without invoking product renderers | static document remains; no preference or model is persisted by the package |
+| browser preference storage/DOM port | unavailable, throws, or contains an unknown value | controlled feature uses the declared default and reports optional diagnostics | invalid preference is ignored; product data is unaffected |
+| development regeneration | a changed config or source fails | current generation is not published; development overlay reports the failure | last complete in-memory generation remains until a valid one replaces it |
+| static server request | malformed encoding, missing file, traversal, or escaping symlink | response is a generic not-found result | no state change |
+| merge source or destination | missing artifact record, protected collision, changed fingerprint, insufficient space, or write failure | staged merge is rejected; destination is not promoted | original destination remains; named staging/recovery may remain after interruption |
+| package registry or action download | exact version unavailable or integrity fails | action/workflow job fails before invoking commands | no deployment artifact from this run |
+| GitHub Pages | upload or deploy fails | workflow reports failure; package makes no retry or rollback claim | previously deployed Pages state is external and unchanged unless GitHub reports otherwise |
+
+An explicit fallback is the only data-level recovery. It is validated, retains
+the triggering error, and is visible to caller UI and artifact diagnostics.
+There is no implicit empty model, bundled product default, stale-source reuse,
+or automatic retry.
 
 ## Concurrency and ordering
 
-Pure rendering has no package concurrency. Resolution adapters await all source
-results before composition. Failure ordering follows declaration order, never
-completion order. DOM theme application removes only links carrying the
-package-owned data attribute and appends the replacement before publishing the
-new controlled state. No package-wide singleton coordinates loaders or storage;
-two consumers are isolated by the ports and keys they supply.
+One operation lease per authoritative tree forbids build/build,
+build/preview, build/merge, and merge/merge races. A merge holds the source
+artifact stable and the destination writable, acquiring both in normalized-path
+order so two merges cannot deadlock. Leases are acquired before staging and
+released on every ordinary exit. Recovery state from an interrupted promotion
+blocks a new writer until the named trees can be adjudicated; the package never
+deletes an ambiguous tree automatically.
+
+Within one build:
+
+- configuration, provenance, containment, and cross-reference validation
+  complete before source I/O;
+- independent source reads may overlap, but each declaration owns one result
+  slot and all diagnostics are emitted in declaration order;
+- build-source resolution completes before any route composition;
+- route plans are fixed before compilation, and route documents are committed
+  to staging in declaration order even if bundler internals parallelize work;
+- all styles and public assets are read, contained, and collision-checked before
+  the authoritative artifact changes;
+- the artifact record is written after file generation and before promotion;
+  its file list and digests are sorted by normalized output path; and
+- promotion is the only point at which the authoritative tree changes.
+
+Within one browser route, required requests may overlap. A generation token
+orders refreshes: completion order never selects the winner, and an older
+generation cannot publish after a newer one begins. Hydration happens once.
+Preference restoration follows the hydration commit and cannot change the
+server-matching first tree.
+
+Development rebuilds are serialized and coalesced. Static-server reads may
+overlap because the committed artifact is immutable for that server instance.
+The delivery workflow intentionally declares no trigger or concurrency group;
+the consuming repository owns whether deployments queue, cancel, or overlap.
+
+## Alternatives considered
+
+### Portfolio-specific executable configuration versus generic or remote modes
+
+Chosen: one executable, eagerly validated Portfolio configuration with a closed
+capability set. It can carry validators and projections without turning remote
+data into executable module names.
+
+Rejected: retaining LandingPage's README/changelog generic modes, because the
+brief replaces rather than extends that product contract. Rejected: a JSON or
+YAML site model naming adapters, because fetched data would select executable
+code and validators could not remain first-class capabilities. Rejected:
+unrestricted Vite plugins, because they can bypass output, DOM, and filesystem
+invariants the builder owns.
+
+### Explicit static documents versus an inferred client router
+
+Chosen: one static document for every explicitly declared route, all written by
+one compiler. This makes route existence, metadata, broken-link validation,
+base paths, and output containment build-time facts.
+
+Rejected: a single-page catch-all router, because it makes undeclared routes
+runtime policy and weakens static-route and no-inference proofs. Rejected:
+copying every route inherited from the Docusaurus image, because incidental
+template pages are not Portfolio product requirements.
+
+### Dual source timing with a hydration gate versus progressive composition
+
+Chosen: each source declares build or browser; build sources settle before SSR,
+and browser sources settle before matching-shell hydration then publish as one
+complete set after the hydration commit.
+
+Rejected: build-only resolution, because it cannot represent consumer-owned
+browser freshness and cache policy. Rejected: browser-only resolution, because
+it gives up auditable static content and build failure for stable inputs.
+Rejected: progressive per-source rendering, because it exposes partial source
+sets and makes completion order visible to users.
+
+### Staged promotion versus clear-and-write output
+
+Chosen: build and merge create complete sibling staging trees, verify them, and
+promote under a single-writer lease with explicit recovery state.
+
+Rejected: clearing and writing the target in place, the LandingPage baseline's
+current behavior, because a later read or bundler failure destroys the last
+known-good artifact. Rejected: detection-only merge, because discovering a
+protected collision after copying still leaves a partially changed deployment
+tree. The cost of staging is additional disk space and copy time; the benefit is
+that failure does not silently make a partial tree authoritative.
+
+### Immutable provenance versus comments naming mutable baselines
+
+Chosen: a canonical manifest records commits, image digests, file inventories,
+overlay rules, and resulting digests, and every parity fixture names the
+manifest identity.
+
+Rejected: recording only repository names, branches, or latest tags, because
+the same implementation instruction could later resolve to different bytes.
+Rejected: copying baseline source into the package without provenance, because
+the origin and exclusions would be unauditable.
+
+### Controlled accessibility preferences versus copied global behavior
+
+Chosen: reader mode and text size join the pure presentation surface as
+controlled components; browser adapters own storage and DOM application through
+ports and package-prefixed tokens.
+
+Rejected: copying the current global Infima selectors, history monkey-patching,
+DOM polling, and hard-coded storage keys, because those are Docusaurus-specific
+mechanics rather than Portfolio presentation. Rejected: dropping the controls,
+because both are enabled in the effective Portfolio baseline and the brief
+includes enabled supporting controls.
+
+### Transfer delivery mechanics versus depend on the baseline product
+
+Chosen: port the proven build, preview, merge, action, workflow, documentation,
+and verification mechanics, then own their Portfolio-specific evolution here.
+
+Rejected: invoke the LandingPage package as a nested builder, because its
+generic site modes and public compatibility promise would become runtime
+dependencies of a product that explicitly excludes them. Rejected: copy the
+files without behavior and provenance tests, because future fixes would have no
+way to distinguish intentional divergence from drift.
 
 ## Open questions
 
-None for the first-release boundary. Supported peer version ranges and the
-duration of the legacy stylesheet are release-time choices constrained by the
-contract and slices, not unresolved architecture.
+None. Exact baseline commits, image digests, inventories, and peer-version
+ranges are discoverable implementation/release inputs governed by the manifest
+and contract; they are not product-policy choices. The public declarations and
+error taxonomy belong to the contract phase rather than this architecture.
