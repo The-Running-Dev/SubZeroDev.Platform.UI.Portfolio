@@ -480,6 +480,30 @@ dependency isolation fail.
 Reversibility: moderate. New browser adapters are additive; moving effects into
 root would be breaking.
 
+### 2026-08-21 — Command paths and local addresses are explicit
+
+Context: the builder requires one explicit configuration per invocation and
+leaves host and deployment policy with the consumer. Conventional working
+directory, configuration filename, output directory, host, or port defaults
+would become public behavior that varies across consumers and tools.
+
+Chosen: every CLI path, host, and port option is required. The repeatable
+protected-path option remains optional because an empty protected set is an
+explicit merge policy. Relative paths follow the resolution rules in the
+public contract; no working-directory discovery selects configuration or
+output policy.
+
+Rejected: **conventional path defaults** — current-directory, configuration
+filename, and output-directory assumptions become semver-governed policy.
+**loopback and fixed-port defaults** — they improve local brevity but silently
+select a host and may collide with another service. **environment-derived
+defaults** — invocation behavior depends on ambient state not named by the
+caller.
+
+Reversibility: moderate before publication and expensive afterward. Adding a
+default later changes accepted invocation behavior; removing a published
+default is breaking.
+
 ## Open
 
 None.
