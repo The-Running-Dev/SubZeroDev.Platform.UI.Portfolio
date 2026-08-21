@@ -504,6 +504,50 @@ Reversibility: moderate before publication and expensive afterward. Adding a
 default later changes accepted invocation behavior; removing a published
 default is breaking.
 
+### 2026-08-21 — Pre-publication exports materialize incrementally
+
+Context: the version-one contract describes the complete first published
+surface, while each implementation slice must leave the package buildable and
+testable without absorbing later slices. S10 needs a real packed root and core
+stylesheet to verify the Portfolio surface, but it does not implement the
+builder, browser, Data.Json, or remaining root declarations.
+
+Chosen: before the first publication, the export map contains only entrypoints
+materialized by completed slices. Unmaterialized declarations remain canonical
+contract scaffolds rather than runtime placeholders. S10 exposes only `.` and
+`./styles.css`, with the root limited to its contracted Portfolio subset.
+
+Rejected: **materialize the complete version-one surface in S10** — it moves
+later slices into the first rendering slice and defeats the accepted slice
+boundaries. **publish throwing placeholders for later entrypoints** — an export
+would exist without usable behavior and could be mistaken for implemented API.
+**withhold all package exports until version one is complete** — it prevents
+packed-consumer and dependency-isolation evidence from being established
+incrementally.
+
+Reversibility: cheap before S10 lands. Afterward, reversing requires either
+invalidating its accepted package evidence or moving later-slice work into S10;
+the policy creates no compatibility promise after the first publication.
+
+### 2026-08-21 — Link destination selection is capability-local
+
+Context: S10 requires deterministic Portfolio selectors to emit no destination
+for a technology or project whose link capability has no `href`. The contract
+defined that behavior but no public selector signature.
+
+Chosen: expose `selectLinkDestination`, accepting a `LinkCapabilityV1` and
+returning `string | undefined`. It returns the already-validated href unchanged
+or `undefined` and does not traverse a Portfolio model, normalize a destination,
+or infer a route.
+
+Rejected: **select every destination from a complete Portfolio model** — it
+couples a small eligibility rule to one renderer's traversal and produces a
+larger projected result. **leave eligibility inside renderers only** — it does
+not satisfy the contracted selector criterion and invites duplicate behavior.
+
+Reversibility: cheap before publication and breaking afterward because the
+function name and signature are part of the root export.
+
 ## Open
 
 None.
