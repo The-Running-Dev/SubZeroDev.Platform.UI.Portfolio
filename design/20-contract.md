@@ -14,6 +14,15 @@ supplying one site configuration. **Root** means the "." npm export and its
 dependency graph. **Artifact** means a promoted builder output carrying a valid
 artifact record.
 
+The version-one surface is the complete first-release destination, not a demand
+that the first implementation slice materialise every scaffold at once. Before
+the first publication, each slice exposes only the declarations and export paths
+its scope and acceptance criteria require; unmaterialised declarations remain
+canonical scaffolds here and are not runtime placeholders. A slice that names a
+root package export, stylesheet, or packed fixture may establish the minimum
+package, build, and test structure needed to verify that contracted subset. It
+does not thereby acquire later slices' declarations, integrations, or behavior.
+
 ## Invariants
 
 ### Ownership and dependency graph
@@ -544,6 +553,9 @@ export function parseCVPeriod(value: string): ValidationResult<{
   readonly ongoing: boolean;
 }>;
 export function sortCVRoles(roles: readonly CVRoleV1[]): readonly CVRoleV1[];
+export function selectLinkDestination(
+  link: LinkCapabilityV1,
+): string | undefined;
 export function flattenPortfolioTechnologies(
   model: PortfolioViewModelV1,
 ): readonly string[];
@@ -566,7 +578,9 @@ categories or sort choices, non-finite counts, and unknown fields. Link
 validation accepts only explicit fragment, absolute-site, "http", "https",
 "mailto", and "tel" destinations. An absent href is inert content. A
 "new-context" target is valid only with a non-empty href and renders with
-"noopener noreferrer".
+"noopener noreferrer". `selectLinkDestination` returns the validated href
+unchanged when present and `undefined` when absent; it does not normalize,
+infer, or validate a destination independently of the package model boundary.
 
 DefinedSource is opaque. Only defineSource can retain the consumer validator and
 projection that earned its hidden raw type. It eagerly validates identity,
@@ -793,7 +807,8 @@ and remove that record deliberately.
 
 ### Package exports
 
-The package name is "subzerodev-platform-ui-portfolio". Version one exports only:
+The package name is "subzerodev-platform-ui-portfolio". The complete first
+published version exports only:
 
 - "." — root declarations, validators, selectors, resolution, and pure React
   renderers scaffolded above;
@@ -806,6 +821,14 @@ The package name is "subzerodev-platform-ui-portfolio". Version one exports only
 There are no Docusaurus, Giscus, Badges, GitHub panel, theme-switcher, legacy
 stylesheet, per-component, wildcard, or internal source exports. JavaScript
 entrypoints do not import CSS.
+
+Before that first publication, the export map may be a strict subset containing
+only paths materialised by completed slices. An entrypoint must not be published
+as a throwing placeholder for a later slice. S10 materialises "." and
+"./styles.css" only; its root surface is limited to the shared validation and
+link declarations required by the Portfolio model, the Portfolio model and
+validator contract, Portfolio selectors, the Portfolio renderer, and their
+error declarations.
 
 ### Builder API
 

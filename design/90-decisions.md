@@ -504,6 +504,25 @@ Reversibility: moderate before publication and expensive afterward. Adding a
 default later changes accepted invocation behavior; removing a published
 default is breaking.
 
+### 2026-08-21 — Link destination selection is capability-local
+
+Context: S10 requires deterministic Portfolio selectors to emit no destination
+for a technology or project whose link capability has no `href`. The contract
+defined that behavior but no public selector signature.
+
+Chosen: expose `selectLinkDestination`, accepting a `LinkCapabilityV1` and
+returning `string | undefined`. It returns the already-validated href unchanged
+or `undefined` and does not traverse a Portfolio model, normalize a destination,
+or infer a route.
+
+Rejected: **select every destination from a complete Portfolio model** — it
+couples a small eligibility rule to one renderer's traversal and produces a
+larger projected result. **leave eligibility inside renderers only** — it does
+not satisfy the contracted selector criterion and invites duplicate behavior.
+
+Reversibility: cheap before publication and breaking afterward because the
+function name and signature are part of the root export.
+
 ## Open
 
 None.
