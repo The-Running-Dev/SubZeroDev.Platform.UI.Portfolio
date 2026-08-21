@@ -110,10 +110,13 @@ does not thereby acquire later slices' declarations, integrations, or behavior.
   read-stability lease on the source and a writer lease on the destination,
   acquiring both in normalized-path order. Race, interruption, deadlock, and
   recovery tests enforce this.
-- **P27** A browser-timed route hydrates the deterministic unresolved boundary
-  only after its whole required source set settles, then publishes exactly one
-  ready, fallback, or error result after the hydration commit. SSR and hydration
-  sequencing tests enforce this.
+- **P27** `hydratePortfolioRoute` owns one browser route's bootstrap validation,
+  complete-set settlement, matching-shell hydration, and post-commit
+  publication. It hydrates the deterministic unresolved boundary only after the
+  whole required source set settles, then publishes exactly one ready, fallback,
+  or error result after the hydration commit. No caller or generated entry may
+  split or reorder that transition. SSR and hydration sequencing tests enforce
+  this.
 - **P28** Only the newest browser refresh generation may publish. Completion
   order never selects a winner. Reversed-completion tests enforce this.
 - **P29** Artifact identity derives only from contracted package, provenance,
@@ -349,15 +352,17 @@ export function validateReaderModeViewModelV1(input: unknown): ValidationResult<
 
 declare const viewModelContractBrand: unique symbol;
 
+export type PortfolioViewModelKindV1 =
+  | "site-chrome"
+  | "cv"
+  | "portfolio"
+  | "projects"
+  | "version-display"
+  | "text-size"
+  | "reader-mode";
+
 export interface ViewModelContract<TView extends PortfolioPackageViewModelV1> {
-  readonly kind:
-    | "site-chrome"
-    | "cv"
-    | "portfolio"
-    | "projects"
-    | "version-display"
-    | "text-size"
-    | "reader-mode";
+  readonly kind: PortfolioViewModelKindV1;
   readonly validate: Validator<TView>;
   readonly [viewModelContractBrand]: TView;
 }
@@ -476,6 +481,19 @@ export function resolveSources(
   sources: readonly DefinedSource<PortfolioPackageViewModelV1>[],
   signal: CancellationSignal,
 ): Promise<readonly Resolution<PortfolioPackageViewModelV1>[]>;
+
+export type ResolvedSourceValueV1 =
+  | {
+      readonly sourceId: SourceId;
+      readonly status: "ready";
+      readonly value: PortfolioPackageViewModelV1;
+    }
+  | {
+      readonly sourceId: SourceId;
+      readonly status: "fallback";
+      readonly value: PortfolioPackageViewModelV1;
+      readonly fallbackError: ResolutionError;
+    };
 
 export function parseCVPeriod(value: string): ValidationResult<{
   readonly start: string;
@@ -661,7 +679,7 @@ export interface ProvenanceManifestV1 {
 }
 
 export interface SerializedErrorV1 {
-  readonly code: string;
+  readonly code: ResolutionErrorCode;
   readonly message: string;
   readonly sourceId?: SourceId;
   readonly issues: readonly ValidationIssue[];
@@ -673,6 +691,7 @@ export interface BrowserBootstrapV1 {
   readonly mode: "build-only" | "browser-gated";
   readonly modelVersions: readonly {
     readonly sourceId: SourceId;
+    readonly kind: PortfolioViewModelKindV1;
     readonly version: 1;
   }[];
   readonly buildModels: readonly {
@@ -682,6 +701,10 @@ export interface BrowserBootstrapV1 {
   }[];
   readonly browserSourceIds: readonly SourceId[];
 }
+
+export function validateBrowserBootstrapV1(
+  input: unknown,
+): ValidationResult<BrowserBootstrapV1>;
 
 export interface ArtifactRecordV1 {
   readonly version: 1;
@@ -721,6 +744,11 @@ array order, and no insignificant whitespace. Digests carry an algorithm prefix
 and use the one algorithm named by the canonicalization module; changing it is
 a record-version change.
 
+`BrowserBootstrapV1` and its validator are root declarations shared by the
+builder and browser entrypoints. Neither optional entrypoint imports the other.
+The validator accepts `unknown`; a parsed JSON cast does not establish a valid
+bootstrap.
+
 The provenance manifest is a tracked package resource bundled with the
 "./builder" implementation. The implementation resolves it from its own
 installed package, never from the process working directory or a consumer root.
@@ -757,7 +785,11 @@ as a throwing placeholder for a later slice. S10 materialises "." and
 "./styles.css" only; its root surface is limited to the shared validation and
 link declarations required by the Portfolio model, the Portfolio model and
 validator contract, Portfolio selectors, the Portfolio renderer, and their
-error declarations.
+error declarations. S12 materialises the root resolution, complete-set, and
+browser-bootstrap declarations it requires plus "./browser" limited to
+browser-source settlement, route hydration, refresh generations, and disposal.
+Preference storage, DOM preference application, and Projects URL state remain
+unmaterialised scaffolds.
 
 ### Builder API
 
@@ -780,12 +812,6 @@ export interface ServerAddress {
 export interface BuildResult {
   readonly artifactPath: string;
   readonly record: ArtifactRecordV1;
-}
-export interface ResolvedSourceValueV1 {
-  readonly sourceId: SourceId;
-  readonly status: "ready" | "fallback";
-  readonly value: PortfolioPackageViewModelV1;
-  readonly fallbackError?: ResolutionError;
 }
 export interface RoutePlanV1 {
   readonly routePath: RoutePath;
@@ -896,9 +922,6 @@ export function mergePortfolioArtifact(
 export function validateProvenanceManifestV1(
   input: unknown,
 ): ValidationResult<ProvenanceManifestV1>;
-export function validateBrowserBootstrapV1(
-  input: unknown,
-): ValidationResult<BrowserBootstrapV1>;
 export function validateArtifactRecordV1(
   input: unknown,
 ): ValidationResult<ArtifactRecordV1>;
@@ -922,11 +945,14 @@ cannot override it.
 export type BrowserErrorCode =
   | "bootstrap.invalid"
   | "browser.sources_failed"
+  | "browser.hydration_failed"
   | "preference.invalid"
   | "preference.port_failed"
+  | "generation.superseded"
   | "generation.disposed";
 
 export interface BrowserErrorOptions {
+  readonly routePath?: RoutePath;
   readonly sourceId?: SourceId;
   readonly issues?: readonly ValidationIssue[];
   readonly causes?: readonly ResolutionError[];
@@ -935,6 +961,7 @@ export interface BrowserErrorOptions {
 
 export class BrowserError extends Error {
   readonly code: BrowserErrorCode;
+  readonly routePath?: RoutePath;
   readonly sourceId?: SourceId;
   readonly issues: readonly ValidationIssue[];
   readonly causes: readonly ResolutionError[];
@@ -946,9 +973,44 @@ export class BrowserError extends Error {
   );
 }
 
-export interface BrowserSourceGate {
-  readonly snapshot: () => readonly Resolution<PortfolioPackageViewModelV1>[];
-  readonly refresh: () => Promise<void>;
+export type BrowserRouteResult =
+  | { readonly status: "loading"; readonly routePath: RoutePath }
+  | {
+      readonly status: "ready";
+      readonly routePath: RoutePath;
+      readonly sources: readonly ResolvedSourceValueV1[];
+    }
+  | {
+      readonly status: "fallback";
+      readonly routePath: RoutePath;
+      readonly sources: readonly ResolvedSourceValueV1[];
+    }
+  | {
+      readonly status: "error";
+      readonly routePath: RoutePath;
+      readonly error: BrowserError;
+    };
+
+export type PublishedBrowserRouteResult = Exclude<
+  BrowserRouteResult,
+  { readonly status: "loading" }
+>;
+
+export interface HydratePortfolioRouteOptions {
+  readonly bootstrap: unknown;
+  readonly sources: readonly DefinedSource<PortfolioPackageViewModelV1>[];
+  readonly container: Element;
+  readonly unresolved: ReactElement;
+  readonly compose: (
+    sources: readonly ResolvedSourceValueV1[],
+  ) => ReactElement;
+  readonly renderError: (error: BrowserError) => ReactElement;
+}
+
+export interface BrowserRouteController {
+  readonly initialPublication: Promise<PublishedBrowserRouteResult>;
+  readonly snapshot: () => BrowserRouteResult;
+  readonly refresh: () => Promise<PublishedBrowserRouteResult>;
   readonly subscribe: (listener: () => void) => () => void;
   readonly dispose: () => void;
 }
@@ -972,9 +1034,9 @@ export interface PreferenceController<T> {
   readonly dispose: () => void;
 }
 
-export function createBrowserSourceGate(
-  sources: readonly DefinedSource<PortfolioPackageViewModelV1>[],
-): BrowserSourceGate;
+export function hydratePortfolioRoute(
+  options: HydratePortfolioRouteOptions,
+): BrowserRouteController;
 export function createTextSizeController(
   model: TextSizeViewModelV1,
   key: string,
@@ -994,11 +1056,46 @@ export function createProjectsUrlController(
 ): PreferenceController<ProjectsQueryV1>;
 ~~~
 
-Importing the browser entrypoint is SSR-safe. Factories read no globals; callers
-supply browser-backed ports after hydration. Storage keys have no package
-default. Unknown saved choices recover to the declared model default after the
-hydration commit and may emit optional diagnostics, but never alter product
-data. Disposal prevents later publication and releases subscriptions.
+Importing the browser entrypoint is SSR-safe. It reads no browser global at
+module evaluation, and `hydratePortfolioRoute` operates only on its explicit
+container and capabilities. The bootstrap is validated before source
+invocation. Its model-version list names every route source in composition
+order, including the package view-model kind used to revalidate each embedded
+build model. Browser source ids must match the supplied browser-timed sources
+exactly and in that relative order; a missing, duplicate, build-timed, extra,
+wrong-kind, or unsupported-version source is `bootstrap.invalid`.
+
+The coordinator settles every source before calling React hydration. Its first
+client tree is exactly `unresolved`, which the document compiler also used for
+the server boundary. The public snapshot remains `loading` through that commit.
+Only the commit effect publishes the settled aggregate and invokes `compose` or
+`renderError`. `compose` receives every build- and browser-timed source as a
+ready or fallback `ResolvedSourceValueV1`, in bootstrap composition order, or is
+not invoked. The aggregate is `fallback` when at least one source used explicit
+fallback and `ready` otherwise. Serialized build fallback diagnostics are
+reconstructed as safe `ResolutionError` values; provider metadata and causes
+that were not persisted are not invented. Any non-renderable browser result
+becomes one `browser.sources_failed` error with ordered causes; rejected raw
+values never enter it.
+
+An invalid bootstrap is never hydrated: the coordinator replaces the boundary
+with caller error UI, invokes no source or product composer, and throws
+`bootstrap.invalid`. React hydration, commit, or callback failure is wrapped as
+`browser.hydration_failed`. `initialPublication` resolves only after the first
+ready, fallback, or error result has been published; a published source error is
+a resolved result, not a rejected lifecycle promise.
+
+Refresh publishes one aggregate loading state for the new generation, retains
+no partial source set, and publishes its final aggregate only if it is still the
+newest generation. A superseded refresh rejects with `generation.superseded`
+and never notifies product UI. Disposal cancels publication, clears
+subscriptions, unmounts the owned hydration root, and makes active or later
+refresh promises reject with `generation.disposed`.
+
+Callers supply browser-backed preference ports only after hydration. Storage
+keys have no package default. Unknown saved choices recover to the declared
+model default after the hydration commit and may emit optional diagnostics, but
+never alter product data.
 
 ### Data.Json API
 
@@ -1140,8 +1237,10 @@ configuration.
 | --- | --- | --- | --- |
 | "bootstrap.invalid" | Parse, route identity, or model version fails | No | Refuse hydration and rebuild |
 | "browser.sources_failed" | The whole browser source set settles with failure | Mixed | Render caller error UI; no product renderer ran |
+| "browser.hydration_failed" | React hydration, commit, or a supplied render callback fails | After correction | Keep or restore the unresolved boundary and correct the renderer |
 | "preference.invalid" | A saved choice is unknown or malformed | No | Use declared default; optionally remove it |
 | "preference.port_failed" | Storage, URL, or DOM port throws | Maybe | Continue with controlled defaults |
+| "generation.superseded" | A newer refresh starts before this generation can publish | No | Ignore the older completion |
 | "generation.disposed" | Work completes after its gate was disposed | No | Ignore completion |
 
 ### Data.Json: DataJsonAdapterError
