@@ -10,14 +10,16 @@ import { BuilderError, buildPortfolioSite, validateProvenanceManifestV1 } from "
 const root = new URL("..", import.meta.url).pathname;
 const builderUrl = pathToFileURL(join(root, "src/builder.js")).href;
 const model = { version: 1, header: { title: "Built" }, statistics: [], categories: [], technologies: [], recentProjects: [] };
+const cvModel = { version: 1, header: { name: "Built", contact: [] }, sections: [] };
 
-async function fixture({ route = "/work", invalid = false, badConfig = false } = {}) {
+async function fixture({ route = "/work", invalid = false, badConfig = false, kind = "portfolio" } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-builder-"));
   const order = [];
+  const sourceModel = kind === "cv" ? cvModel : model;
   const config = `import { definePortfolioSite, defineSource } from ${JSON.stringify(builderUrl)};
 const order = globalThis.__szdOrder;
-const source = defineSource({ id: "portfolio", timing: "build", provider: { resolve: async () => { order?.push("provider"); return { value: ${JSON.stringify(model)}, metadata: [] }; } }, validateRaw: (value) => { order?.push("raw"); return ${invalid ? "{ ok: false, issues: [] }" : "{ ok: true, value }"}; }, project: (value) => { order?.push("project"); return value; }, viewModel: { validate: (value) => { order?.push("view"); return value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] }; } } });
-export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: ${JSON.stringify(route)}, metadata: { title: "Route" }, presentation: { kind: "portfolio", modelSourceId: "portfolio" }, requiredSourceIds: [${badConfig ? '"missing"' : '"portfolio"'}] }], sources: [source], styles: [], navigation: [], publicAssets: [] });`;
+const source = defineSource({ id: "portfolio", timing: "build", provider: { resolve: async () => { order?.push("provider"); return { value: ${JSON.stringify(sourceModel)}, metadata: [] }; } }, validateRaw: (value) => { order?.push("raw"); return ${invalid ? "{ ok: false, issues: [] }" : "{ ok: true, value }"}; }, project: (value) => { order?.push("project"); return value; }, viewModel: { validate: (value) => { order?.push("view"); return value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] }; } } });
+export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: ${JSON.stringify(route)}, metadata: { title: "Route" }, presentation: { kind: ${JSON.stringify(kind)}, modelSourceId: "portfolio" }, requiredSourceIds: [${badConfig ? '"missing"' : '"portfolio"'}] }], sources: [source], styles: [], navigation: [], publicAssets: [] });`;
   await writeFile(join(dir, "site.mjs"), config);
   return { dir, order };
 }
@@ -54,6 +56,13 @@ test("S11.2, S11.3, and S11.7 build only declared routes in deterministic declar
   assert.deepEqual(record.routes, ["/work"]); assert.deepEqual(record.files.map((file) => file.path), [...record.files.map((file) => file.path)].sort());
   const second = await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }); assert.equal(second.record.artifactDigest, first.record.artifactDigest);
   assert.doesNotMatch(JSON.stringify(record), /provider|metadata|function/i); delete globalThis.__szdOrder;
+});
+
+test("S13.6 builds a CV-kind route through the same document compiler", async (t) => {
+  const { dir, order } = await fixture({ kind: "cv" }); t.after(() => rm(dir, { recursive: true, force: true })); globalThis.__szdOrder = order;
+  await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  assert.match(await readFile(join(dir, "out/work/index.html"), "utf8"), /szd-portfolio-cv/);
+  delete globalThis.__szdOrder;
 });
 
 test("S11.3 stops source processing at the first failed validation boundary", async (t) => {

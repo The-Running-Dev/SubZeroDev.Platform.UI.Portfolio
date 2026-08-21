@@ -220,11 +220,7 @@ export function validatePortfolioViewModelV1(input) {
       }
       validateStringArray(project.tags, [...path, "tags"], issues);
       validateStringArray(project.technologies, [...path, "technologies"], issues);
-      if (!Array.isArray(project.links)) {
-        issues.push(issue("view.expected_array", [...path, "links"], "An array is required."));
-      } else {
-        project.links.forEach((link, linkIndex) => validateLink(link, [...path, "links", linkIndex], issues));
-      }
+      validateLinks(project.links, [...path, "links"], issues);
       if (project.period !== undefined) {
         validatePeriod(project.period, [...path, "period"], issues);
       }
@@ -270,6 +266,16 @@ function validateText(value, path, issues) {
   pushUnknownFields(value, value.kind === "text" ? new Set(["kind", "value"]) : new Set(["kind", "slotId"]), path, issues);
 }
 function validateLinks(value, path, issues) { if (!Array.isArray(value)) issues.push(issue("view.expected_array", path, "An array is required.")); else value.forEach((link, i) => validateLink(link, [...path, i], issues)); }
+function validateIdArray(value, path, kindLabel, issues, validateItem) {
+  if (!Array.isArray(value)) { issues.push(issue("view.expected_array", path, "An array is required.")); return; }
+  const ids = new Set();
+  value.forEach((item, index) => {
+    const itemPath = [...path, index];
+    if (!isRecord(item)) { issues.push(issue("view.expected_object", itemPath, `A ${kindLabel} is required.`)); return; }
+    validateUniqueId(item.id, [...itemPath, "id"], ids, issues);
+    validateItem(item, itemPath, issues);
+  });
+}
 
 export function validateSiteChromeViewModelV1(input) {
   return validationResult(input, "site chrome", (value, issues) => {
@@ -284,8 +290,62 @@ export function validateSiteChromeViewModelV1(input) {
 export function validateCVViewModelV1(input) {
   return validationResult(input, "CV", (value, issues) => {
     if (value.version !== 1) issues.push(issue("view.unsupported_version", ["version"], "Version 1 is required."));
-    if (!isRecord(value.header)) issues.push(issue("view.expected_object", ["header"], "A header is required.")); else { validateRequiredString(value.header.name, ["header", "name"], issues); if (value.header.headline !== undefined) validateRequiredString(value.header.headline, ["header", "headline"], issues); validateLinks(value.header.contact, ["header", "contact"], issues); pushUnknownFields(value.header, new Set(["name", "headline", "contact"]), ["header"], issues); }
-    const ids = new Set(); if (!Array.isArray(value.sections)) issues.push(issue("view.expected_array", ["sections"], "An array is required.")); else value.sections.forEach((section, i) => { const path = ["sections", i]; if (!isRecord(section)) return issues.push(issue("view.expected_object", path, "A section is required.")); validateUniqueId(section.id, [...path, "id"], ids, issues); validateRequiredString(section.heading, [...path, "heading"], issues); if (section.kind === "summary") { validateText(section.body, [...path, "body"], issues); pushUnknownFields(section, new Set(["kind", "id", "heading", "body"]), path, issues); } else if (section.kind === "roles") { if (!Array.isArray(section.roles)) issues.push(issue("view.expected_array", [...path, "roles"], "An array is required.")); else { const roleIds = new Set(); section.roles.forEach((role, j) => { const rp = [...path, "roles", j]; if (!isRecord(role)) return issues.push(issue("view.expected_object", rp, "A role is required.")); validateUniqueId(role.id, [...rp, "id"], roleIds, issues); validateRequiredString(role.title, [...rp, "title"], issues); validateRequiredString(role.organization, [...rp, "organization"], issues); validatePeriod(role.period, [...rp, "period"], issues); if (role.summary !== undefined) validateText(role.summary, [...rp, "summary"], issues); if (!Array.isArray(role.achievements)) issues.push(issue("view.expected_array", [...rp, "achievements"], "An array is required.")); else role.achievements.forEach((item, k) => validateText(item, [...rp, "achievements", k], issues)); validateStringArray(role.technologies, [...rp, "technologies"], issues); pushUnknownFields(role, new Set(["id", "title", "organization", "period", "summary", "achievements", "technologies"]), rp, issues); }); } pushUnknownFields(section, new Set(["kind", "id", "heading", "roles"]), path, issues); } else if (section.kind === "projects") { if (!Array.isArray(section.projects)) issues.push(issue("view.expected_array", [...path, "projects"], "An array is required.")); else { const projectIds = new Set(); section.projects.forEach((project, j) => { const pp = [...path, "projects", j]; if (!isRecord(project)) return issues.push(issue("view.expected_object", pp, "A project is required.")); validateUniqueId(project.id, [...pp, "id"], projectIds, issues); validateRequiredString(project.name, [...pp, "name"], issues); if (project.summary !== undefined) validateText(project.summary, [...pp, "summary"], issues); validateStringArray(project.technologies, [...pp, "technologies"], issues); if (project.link !== undefined) validateLink(project.link, [...pp, "link"], issues); pushUnknownFields(project, new Set(["id", "name", "summary", "technologies", "link"]), pp, issues); }); } pushUnknownFields(section, new Set(["kind", "id", "heading", "projects"]), path, issues); } else if (section.kind === "education") { if (!Array.isArray(section.items)) issues.push(issue("view.expected_array", [...path, "items"], "An array is required.")); else { const educationIds = new Set(); section.items.forEach((item, j) => { const ep = [...path, "items", j]; if (!isRecord(item)) return issues.push(issue("view.expected_object", ep, "An education item is required.")); validateUniqueId(item.id, [...ep, "id"], educationIds, issues); validateRequiredString(item.institution, [...ep, "institution"], issues); validateRequiredString(item.qualification, [...ep, "qualification"], issues); if (item.period !== undefined) validateRequiredString(item.period, [...ep, "period"], issues); pushUnknownFields(item, new Set(["id", "institution", "qualification", "period"]), ep, issues); }); } pushUnknownFields(section, new Set(["kind", "id", "heading", "items"]), path, issues); } else if (section.kind === "achievements") { if (!Array.isArray(section.items)) issues.push(issue("view.expected_array", [...path, "items"], "An array is required.")); else section.items.forEach((item, j) => validateText(item, [...path, "items", j], issues)); pushUnknownFields(section, new Set(["kind", "id", "heading", "items"]), path, issues); } else issues.push(issue("view.invalid_section", [...path, "kind"], "A supported section is required.")); });
+    if (!isRecord(value.header)) {
+      issues.push(issue("view.expected_object", ["header"], "A header is required."));
+    } else {
+      validateRequiredString(value.header.name, ["header", "name"], issues);
+      if (value.header.headline !== undefined) validateRequiredString(value.header.headline, ["header", "headline"], issues);
+      validateLinks(value.header.contact, ["header", "contact"], issues);
+      pushUnknownFields(value.header, new Set(["name", "headline", "contact"]), ["header"], issues);
+    }
+    const ids = new Set();
+    if (!Array.isArray(value.sections)) {
+      issues.push(issue("view.expected_array", ["sections"], "An array is required."));
+    } else {
+      value.sections.forEach((section, i) => {
+        const path = ["sections", i];
+        if (!isRecord(section)) { issues.push(issue("view.expected_object", path, "A section is required.")); return; }
+        validateUniqueId(section.id, [...path, "id"], ids, issues);
+        validateRequiredString(section.heading, [...path, "heading"], issues);
+        if (section.kind === "summary") {
+          validateText(section.body, [...path, "body"], issues);
+          pushUnknownFields(section, new Set(["kind", "id", "heading", "body"]), path, issues);
+        } else if (section.kind === "roles") {
+          validateIdArray(section.roles, [...path, "roles"], "role", issues, (role, rp, issues) => {
+            validateRequiredString(role.title, [...rp, "title"], issues);
+            validateRequiredString(role.organization, [...rp, "organization"], issues);
+            validatePeriod(role.period, [...rp, "period"], issues);
+            if (role.summary !== undefined) validateText(role.summary, [...rp, "summary"], issues);
+            if (!Array.isArray(role.achievements)) issues.push(issue("view.expected_array", [...rp, "achievements"], "An array is required.")); else role.achievements.forEach((item, k) => validateText(item, [...rp, "achievements", k], issues));
+            validateStringArray(role.technologies, [...rp, "technologies"], issues);
+            pushUnknownFields(role, new Set(["id", "title", "organization", "period", "summary", "achievements", "technologies"]), rp, issues);
+          });
+          pushUnknownFields(section, new Set(["kind", "id", "heading", "roles"]), path, issues);
+        } else if (section.kind === "projects") {
+          validateIdArray(section.projects, [...path, "projects"], "project", issues, (project, pp, issues) => {
+            validateRequiredString(project.name, [...pp, "name"], issues);
+            if (project.summary !== undefined) validateText(project.summary, [...pp, "summary"], issues);
+            validateStringArray(project.technologies, [...pp, "technologies"], issues);
+            if (project.link !== undefined) validateLink(project.link, [...pp, "link"], issues);
+            pushUnknownFields(project, new Set(["id", "name", "summary", "technologies", "link"]), pp, issues);
+          });
+          pushUnknownFields(section, new Set(["kind", "id", "heading", "projects"]), path, issues);
+        } else if (section.kind === "education") {
+          validateIdArray(section.items, [...path, "items"], "education item", issues, (item, ep, issues) => {
+            validateRequiredString(item.institution, [...ep, "institution"], issues);
+            validateRequiredString(item.qualification, [...ep, "qualification"], issues);
+            if (item.period !== undefined) validateRequiredString(item.period, [...ep, "period"], issues);
+            pushUnknownFields(item, new Set(["id", "institution", "qualification", "period"]), ep, issues);
+          });
+          pushUnknownFields(section, new Set(["kind", "id", "heading", "items"]), path, issues);
+        } else if (section.kind === "achievements") {
+          if (!Array.isArray(section.items)) issues.push(issue("view.expected_array", [...path, "items"], "An array is required.")); else section.items.forEach((item, j) => validateText(item, [...path, "items", j], issues));
+          pushUnknownFields(section, new Set(["kind", "id", "heading", "items"]), path, issues);
+        } else {
+          issues.push(issue("view.invalid_section", [...path, "kind"], "A supported section is required."));
+        }
+      });
+    }
     pushUnknownFields(value, new Set(["version", "header", "sections"]), [], issues);
   });
 }
@@ -311,17 +371,50 @@ function checked(model, kind, validator) { const result = validator(model); if (
 function navigationItem(item, key) { if (item.kind === "link") return renderLink(item.link, item.link.label, key); if (item.kind === "text") return React.createElement("span", { className: "szd-portfolio-navigation-text", key }, item.label); return React.createElement("span", { className: "szd-portfolio-navigation-group", key }, [React.createElement("span", { key: "label" }, item.label), ...item.items.map((link, i) => renderLink(link, link.label, `${key}-${i}`))]); }
 export function SiteChrome({ model, renderIcon }) { checked(model, "site-chrome", validateSiteChromeViewModelV1); return React.createElement("header", { className: "szd-portfolio-site-chrome" }, [React.createElement("div", { className: "szd-portfolio-identity", key: "identity" }, [model.identity.iconKey === undefined || renderIcon === undefined ? null : React.createElement("span", { className: "szd-portfolio-icon", "aria-hidden": "true", key: "icon" }, renderIcon(model.identity.iconKey)), React.createElement("span", { className: "szd-portfolio-identity-name", key: "name" }, model.identity.name), model.identity.subtitle && React.createElement("span", { className: "szd-portfolio-identity-subtitle", key: "subtitle" }, model.identity.subtitle)]), React.createElement("nav", { className: "szd-portfolio-primary-navigation", "aria-label": "Primary navigation", key: "primary" }, model.primaryNavigation.map((item) => navigationItem(item, item.id))), React.createElement("nav", { className: "szd-portfolio-secondary-navigation", "aria-label": "Secondary navigation", key: "secondary" }, model.secondaryNavigation.map((item) => navigationItem(item, item.id))), model.footer && React.createElement("footer", { className: "szd-portfolio-footer", key: "footer" }, [React.createElement("span", { key: "text" }, model.footer.text), ...model.footer.links.map((link, i) => renderLink(link, link.label, `footer-${i}`))])]); }
 function renderCVText(text, slots, key) { return text.kind === "text" ? text.value : slots.get(text.slotId) ?? null; }
-export function CV({ model, richTextSlots = [] }) { checked(model, "cv", validateCVViewModelV1); const slots = new Map(richTextSlots.map((slot) => [slot.id, slot.content])); return React.createElement("main", { className: "szd-portfolio-cv" }, [React.createElement("header", { className: "szd-portfolio-cv-header", key: "header" }, [React.createElement("h1", { key: "name" }, model.header.name), model.header.headline && React.createElement("p", { key: "headline" }, model.header.headline)]), ...model.sections.map((section) => React.createElement("section", { className: "szd-portfolio-cv-section", key: section.id }, [React.createElement("h2", { key: "heading" }, section.heading), section.kind === "summary" ? React.createElement("p", { key: "body" }, renderCVText(section.body, slots, "body")) : section.kind === "roles" ? section.roles.map((role) => React.createElement("article", { className: "szd-portfolio-cv-role", key: role.id }, [React.createElement("h3", { key: "title" }, role.title), React.createElement("p", { key: "organization" }, role.organization), role.summary && React.createElement("p", { key: "summary" }, renderCVText(role.summary, slots, "summary"))])) : null]))]); }
+function renderCVPeriod(period, key) { return React.createElement("p", { className: "szd-portfolio-cv-period", key }, period.ongoing ? `${period.start} – Present` : `${period.start} – ${period.end}`); }
+function renderCVAchievements(items, slots, keyPrefix) { return items.length === 0 ? null : React.createElement("ul", { className: "szd-portfolio-cv-achievements", key: `${keyPrefix}-achievements` }, items.map((item, index) => React.createElement("li", { key: index }, renderCVText(item, slots, `${keyPrefix}-achievement-${index}`)))); }
+function renderCVTechnologies(technologies, keyPrefix) { return technologies.length === 0 ? null : React.createElement("ul", { className: "szd-portfolio-cv-technologies", key: `${keyPrefix}-technologies` }, technologies.map((technology) => React.createElement("li", { key: technology }, technology))); }
+function renderCVSectionContent(section, slots) {
+  if (section.kind === "summary") return React.createElement("p", { key: "body" }, renderCVText(section.body, slots, "body"));
+  if (section.kind === "roles") return section.roles.map((role) => React.createElement("article", { className: "szd-portfolio-cv-role", key: role.id }, [
+    React.createElement("h3", { key: "title" }, role.title),
+    React.createElement("p", { className: "szd-portfolio-cv-organization", key: "organization" }, role.organization),
+    renderCVPeriod(role.period, "period"),
+    role.summary && React.createElement("p", { key: "summary" }, renderCVText(role.summary, slots, "summary")),
+    renderCVAchievements(role.achievements, slots, role.id),
+    renderCVTechnologies(role.technologies, role.id),
+  ]));
+  if (section.kind === "projects") return section.projects.map((project) => React.createElement("article", { className: "szd-portfolio-cv-project", key: project.id }, [
+    React.createElement("h3", { key: "name" }, project.link === undefined ? project.name : renderLink(project.link, project.name, "link")),
+    project.summary && React.createElement("p", { key: "summary" }, renderCVText(project.summary, slots, "summary")),
+    renderCVTechnologies(project.technologies, project.id),
+  ]));
+  if (section.kind === "education") return section.items.map((item) => React.createElement("article", { className: "szd-portfolio-cv-education", key: item.id }, [
+    React.createElement("h3", { key: "institution" }, item.institution),
+    React.createElement("p", { key: "qualification" }, item.qualification),
+    item.period && React.createElement("p", { className: "szd-portfolio-cv-period", key: "period" }, item.period),
+  ]));
+  return renderCVAchievements(section.items, slots, section.id);
+}
+export function CV({ model, richTextSlots = [] }) {
+  checked(model, "cv", validateCVViewModelV1);
+  const slots = new Map(richTextSlots.map((slot) => [slot.id, slot.content]));
+  return React.createElement("main", { className: "szd-portfolio-cv" }, [
+    React.createElement("header", { className: "szd-portfolio-cv-header", key: "header" }, [
+      React.createElement("h1", { key: "name" }, model.header.name),
+      model.header.headline && React.createElement("p", { key: "headline" }, model.header.headline),
+      model.header.contact.length === 0 ? null : React.createElement("div", { className: "szd-portfolio-cv-contact", key: "contact" }, model.header.contact.map((link, index) => renderLink(link, link.label, `contact-${index}`))),
+    ]),
+    ...model.sections.map((section) => React.createElement("section", { className: "szd-portfolio-cv-section", key: section.id }, [
+      React.createElement("h2", { key: "heading" }, section.heading),
+      renderCVSectionContent(section, slots),
+    ])),
+  ]);
+}
 export function VersionDisplay({ model }) { checked(model, "version-display", validateVersionDisplayViewModelV1); const text = model.prefix === undefined ? model.text : `${model.prefix} ${model.text}`; return React.createElement("span", { className: "szd-portfolio-version" }, model.link === undefined ? text : renderLink(model.link, text, "version")); }
 
 export function Portfolio({ model, renderIcon }) {
-  const validation = validatePortfolioViewModelV1(model);
-  if (!validation.ok) {
-    throw new ValidationError("view.validation_failed", "Portfolio view model is invalid.", {
-      modelKind: "portfolio",
-      issues: validation.issues,
-    });
-  }
+  checked(model, "portfolio", validatePortfolioViewModelV1);
 
   const children = [
     React.createElement("header", { className: "szd-portfolio-header", key: "header" }, [

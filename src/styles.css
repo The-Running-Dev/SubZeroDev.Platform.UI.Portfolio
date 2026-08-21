@@ -61,7 +61,9 @@
 .szd-portfolio-site-chrome,
 .szd-portfolio-cv,
 .szd-portfolio-cv-section,
-.szd-portfolio-cv-role {
+.szd-portfolio-cv-role,
+.szd-portfolio-cv-project,
+.szd-portfolio-cv-education {
   display: grid;
   gap: calc(var(--szd-portfolio-space) / 2);
 }
@@ -69,7 +71,10 @@
 .szd-portfolio-primary-navigation,
 .szd-portfolio-secondary-navigation,
 .szd-portfolio-footer,
-.szd-portfolio-navigation-group {
+.szd-portfolio-navigation-group,
+.szd-portfolio-cv-contact,
+.szd-portfolio-cv-achievements,
+.szd-portfolio-cv-technologies {
   display: flex;
   flex-wrap: wrap;
   gap: calc(var(--szd-portfolio-space) / 2);
