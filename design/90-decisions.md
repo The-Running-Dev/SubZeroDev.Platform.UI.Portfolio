@@ -574,6 +574,35 @@ Reversibility: moderate. A future consumer-selectable provenance input would
 add public configuration or command surface and would require artifacts to
 distinguish package evidence from caller-supplied evidence.
 
+### 2026-08-21 — The browser entrypoint owns the route hydration transition
+
+Context: S12 requires browser sources to settle before matching-shell hydration
+and permits publication only after that hydration commits. The existing
+browser-source gate scaffold exposed snapshots, refresh, subscription, and
+disposal but no operation that could own or prove the settle, hydrate, and
+publish ordering.
+
+Chosen: `./browser` exposes one route-level coordinator that validates the
+shared root bootstrap contract, matches its ordered browser source ids to
+explicit source definitions, settles the complete set, hydrates the compiler's
+unresolved boundary, combines the revalidated build models with the settled
+browser models in declared composition order, and publishes one aggregate
+result from the hydration commit. The coordinator also owns refresh generations
+and disposal. Builder and browser remain sibling entrypoints; the bootstrap
+schema and validator live in root rather than making either optional entrypoint
+import the other.
+
+Rejected: **expose only a low-level source gate** — generated client code would
+own the critical ordering and could publish before commit. **put the complete
+coordinator only in generated code** — the lifecycle would have no reusable or
+directly testable package surface. **make browser import builder for bootstrap
+validation** — Node/Vite dependencies could enter the browser graph and the
+optional entrypoints would no longer depend inward independently.
+
+Reversibility: moderate before publication and expensive afterward. The
+coordinator, aggregate states, bootstrap ownership, and lifecycle errors become
+semver-governed browser behavior.
+
 ## Open
 
 None.
