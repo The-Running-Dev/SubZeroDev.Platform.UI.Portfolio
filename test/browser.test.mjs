@@ -7,7 +7,7 @@ import {
   resolveSources,
   validateBrowserBootstrapV1,
 } from "../src/index.js";
-import { BrowserError, hydratePortfolioRoute } from "../src/browser.js";
+import { BrowserError, createProjectsUrlController, createReaderModeController, createTextSizeController, hydratePortfolioRoute } from "../src/browser.js";
 
 const model = { version: 1, header: { title: "Browser" }, statistics: [], categories: [], technologies: [], recentProjects: [] };
 const source = (id, value, delay = 0) => defineSource({
@@ -65,4 +65,92 @@ test("S12.6 imports the browser entrypoint with browser globals unavailable", as
       if (descriptor === undefined) delete globalThis[name]; else Object.defineProperty(globalThis, name, descriptor);
     }
   }
+});
+
+function spyStorage(initial = new Map()) {
+  return {
+    values: initial,
+    reads: [],
+    writes: [],
+    read(key) { this.reads.push(key); return this.values.has(key) ? this.values.get(key) : null; },
+    write(key, value) { this.writes.push([key, value]); this.values.set(key, value); },
+    remove(key) { this.values.delete(key); },
+  };
+}
+function spyDom() {
+  return { attributes: new Map(), setAttribute(name, value) { this.attributes.set(name, value); }, removeAttribute(name) { this.attributes.delete(name); } };
+}
+const textSizeModel = { version: 1, label: "Text size", choices: [{ id: "small", label: "Small", scaleToken: "sm" }, { id: "large", label: "Large", scaleToken: "lg" }], defaultChoiceId: "small" };
+const readerModeModel = { version: 1, label: "Reader mode", enabledLabel: "On", disabledLabel: "Off", defaultEnabled: false };
+const projectsModel = { version: 1, heading: "Projects", projects: [], categories: [{ id: "web", label: "Web" }], sortChoices: [{ id: "newest", label: "Newest" }] };
+const defaultQuery = { search: "", categoryIds: [], tags: [], sortChoiceId: "newest" };
+
+test("S14.4 createTextSizeController recovers unknown saved choices to the declared default and applies the DOM/storage ports", () => {
+  const storage = spyStorage(new Map([["text-size", "huge"]]));
+  const dom = spyDom();
+  const controller = createTextSizeController(textSizeModel, "text-size", storage, dom);
+  assert.equal(controller.get(), "small");
+  assert.equal(dom.attributes.get("data-szd-portfolio-text-size"), "sm");
+
+  const notifications = [];
+  const unsubscribe = controller.subscribe(() => notifications.push(controller.get()));
+  controller.set("bogus");
+  assert.equal(controller.get(), "small");
+  assert.equal(storage.writes.length, 0);
+  controller.set("large");
+  assert.equal(controller.get(), "large");
+  assert.equal(dom.attributes.get("data-szd-portfolio-text-size"), "lg");
+  assert.deepEqual(storage.writes, [["text-size", "large"]]);
+  assert.deepEqual(notifications, ["large"]);
+
+  unsubscribe();
+  controller.dispose();
+  controller.set("small");
+  assert.equal(controller.get(), "large");
+});
+
+test("S14.4 createTextSizeController retains the default when the storage port throws", () => {
+  const storage = { read: () => { throw new Error("blocked"); }, write: () => { throw new Error("blocked"); }, remove: () => {} };
+  const dom = spyDom();
+  const controller = createTextSizeController(textSizeModel, "text-size", storage, dom);
+  assert.equal(controller.get(), "small");
+  controller.set("large");
+  assert.equal(controller.get(), "large", "a throwing storage write must not block the in-memory preference");
+});
+
+test("S14.4 createReaderModeController toggles a package-prefixed DOM attribute and recovers invalid saved state", () => {
+  const storage = spyStorage(new Map([["reader-mode", "not-a-boolean"]]));
+  const dom = spyDom();
+  const controller = createReaderModeController(readerModeModel, "reader-mode", storage, dom);
+  assert.equal(controller.get(), false);
+  assert.equal(dom.attributes.has("data-szd-portfolio-reader-mode"), false);
+  controller.set(true);
+  assert.equal(controller.get(), true);
+  assert.equal(dom.attributes.get("data-szd-portfolio-reader-mode"), "true");
+  controller.set(false);
+  assert.equal(dom.attributes.has("data-szd-portfolio-reader-mode"), false);
+});
+
+test("S14.4 createProjectsUrlController parses, sanitizes, and serializes through the URL port", () => {
+  const port = { value: "search=react&categoryIds=web,unknown&sort=bogus", reads: 0, replaced: [], read() { this.reads += 1; return this.value; }, replace(query) { this.replaced.push(query); this.value = query; } };
+  const controller = createProjectsUrlController(projectsModel, defaultQuery, port);
+  assert.deepEqual(controller.get(), { search: "react", categoryIds: ["web"], tags: [], sortChoiceId: "newest" });
+
+  const notifications = [];
+  controller.subscribe(() => notifications.push(controller.get()));
+  controller.set({ search: "next", categoryIds: ["web", "unknown"], tags: ["cli"], sortChoiceId: "unknown" });
+  assert.deepEqual(controller.get(), { search: "next", categoryIds: ["web"], tags: ["cli"], sortChoiceId: "newest" });
+  assert.deepEqual(notifications, [controller.get()]);
+  assert.equal(port.replaced.length, 1);
+  assert.match(port.replaced[0], /search=next/);
+  assert.match(port.replaced[0], /categoryIds=web/);
+  assert.doesNotMatch(port.replaced[0], /unknown/);
+});
+
+test("S14.4 createProjectsUrlController falls back to the declared first-render default when the URL port throws", () => {
+  const port = { read: () => { throw new Error("blocked"); }, replace: () => { throw new Error("blocked"); } };
+  const controller = createProjectsUrlController(projectsModel, defaultQuery, port);
+  assert.deepEqual(controller.get(), defaultQuery);
+  controller.set({ ...defaultQuery, search: "still works" });
+  assert.equal(controller.get().search, "still works", "a throwing URL port must not block the in-memory preference");
 });

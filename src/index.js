@@ -1,6 +1,7 @@
 import React from "react";
 
 const linkProtocols = new Set(["http:", "https:", "mailto:", "tel:"]);
+const knownProjectSorts = new Set(["newest", "title"]);
 
 /** @typedef {(string | number)[]} IssuePath */
 
@@ -351,6 +352,159 @@ export function validateCVViewModelV1(input) {
 }
 export function validateVersionDisplayViewModelV1(input) { return validationResult(input, "version display", (value, issues) => { if (value.version !== 1) issues.push(issue("view.unsupported_version", ["version"], "Version 1 is required.")); validateRequiredString(value.text, ["text"], issues); if (value.prefix !== undefined) validateRequiredString(value.prefix, ["prefix"], issues); if (value.link !== undefined) validateLink(value.link, ["link"], issues); pushUnknownFields(value, new Set(["version", "text", "prefix", "link"]), [], issues); }); }
 
+function validateProjectCard(value, path, categoryIds, ids, issues) {
+  if (!isRecord(value)) { issues.push(issue("view.expected_object", path, "A project card object is required.")); return; }
+  validateUniqueId(value.id, [...path, "id"], ids, issues);
+  validateRequiredString(value.title, [...path, "title"], issues);
+  validateRequiredString(value.summary, [...path, "summary"], issues);
+  if (validateStringArray(value.categoryIds, [...path, "categoryIds"], issues)) {
+    value.categoryIds.forEach((categoryId, index) => {
+      if (isNonEmptyString(categoryId) && !categoryIds.has(categoryId)) {
+        issues.push(issue("view.unknown_category", [...path, "categoryIds", index], "Project category must be declared."));
+      }
+    });
+  }
+  validateStringArray(value.tags, [...path, "tags"], issues);
+  validateStringArray(value.technologies, [...path, "technologies"], issues);
+  validateLinks(value.links, [...path, "links"], issues);
+  if (value.period !== undefined) validatePeriod(value.period, [...path, "period"], issues);
+  pushUnknownFields(value, new Set(["id", "title", "summary", "categoryIds", "tags", "technologies", "period", "links"]), path, issues);
+}
+
+export function validateProjectsViewModelV1(input) {
+  return validationResult(input, "projects", (value, issues) => {
+    if (value.version !== 1) issues.push(issue("view.unsupported_version", ["version"], "Version 1 is required."));
+    validateRequiredString(value.heading, ["heading"], issues);
+
+    const categoryIds = new Set();
+    if (!Array.isArray(value.categories)) {
+      issues.push(issue("view.expected_array", ["categories"], "An array is required."));
+    } else {
+      value.categories.forEach((category, index) => {
+        const path = ["categories", index];
+        if (!isRecord(category)) { issues.push(issue("view.expected_object", path, "A category object is required.")); return; }
+        validateUniqueId(category.id, [...path, "id"], categoryIds, issues);
+        validateRequiredString(category.label, [...path, "label"], issues);
+        pushUnknownFields(category, new Set(["id", "label"]), path, issues);
+      });
+    }
+
+    if (!Array.isArray(value.sortChoices)) {
+      issues.push(issue("view.expected_array", ["sortChoices"], "An array is required."));
+    } else {
+      const sortIds = new Set();
+      value.sortChoices.forEach((choice, index) => {
+        const path = ["sortChoices", index];
+        if (!isRecord(choice)) { issues.push(issue("view.expected_object", path, "A sort choice object is required.")); return; }
+        validateUniqueId(choice.id, [...path, "id"], sortIds, issues);
+        validateRequiredString(choice.label, [...path, "label"], issues);
+        if (isNonEmptyString(choice.id) && !knownProjectSorts.has(choice.id)) {
+          issues.push(issue("view.unknown_sort_choice", [...path, "id"], "A supported sort choice id is required."));
+        }
+        pushUnknownFields(choice, new Set(["id", "label"]), path, issues);
+      });
+    }
+
+    if (!Array.isArray(value.projects)) {
+      issues.push(issue("view.expected_array", ["projects"], "An array is required."));
+    } else {
+      const ids = new Set();
+      value.projects.forEach((project, index) => validateProjectCard(project, ["projects", index], categoryIds, ids, issues));
+    }
+
+    if (value.emptyLabel !== undefined) validateRequiredString(value.emptyLabel, ["emptyLabel"], issues);
+    pushUnknownFields(value, new Set(["version", "heading", "projects", "categories", "sortChoices", "emptyLabel"]), [], issues);
+  });
+}
+
+export function validateTextSizeViewModelV1(input) {
+  return validationResult(input, "text size", (value, issues) => {
+    if (value.version !== 1) issues.push(issue("view.unsupported_version", ["version"], "Version 1 is required."));
+    validateRequiredString(value.label, ["label"], issues);
+    const choiceIds = new Set();
+    if (!Array.isArray(value.choices)) {
+      issues.push(issue("view.expected_array", ["choices"], "An array is required."));
+    } else {
+      value.choices.forEach((choice, index) => {
+        const path = ["choices", index];
+        if (!isRecord(choice)) { issues.push(issue("view.expected_object", path, "A choice object is required.")); return; }
+        validateUniqueId(choice.id, [...path, "id"], choiceIds, issues);
+        validateRequiredString(choice.label, [...path, "label"], issues);
+        validateRequiredString(choice.scaleToken, [...path, "scaleToken"], issues);
+        pushUnknownFields(choice, new Set(["id", "label", "scaleToken"]), path, issues);
+      });
+    }
+    if (validateRequiredString(value.defaultChoiceId, ["defaultChoiceId"], issues) && Array.isArray(value.choices) && !choiceIds.has(value.defaultChoiceId)) {
+      issues.push(issue("view.unknown_choice", ["defaultChoiceId"], "The default choice must be declared."));
+    }
+    pushUnknownFields(value, new Set(["version", "label", "choices", "defaultChoiceId"]), [], issues);
+  });
+}
+
+export function validateReaderModeViewModelV1(input) {
+  return validationResult(input, "reader mode", (value, issues) => {
+    if (value.version !== 1) issues.push(issue("view.unsupported_version", ["version"], "Version 1 is required."));
+    validateRequiredString(value.label, ["label"], issues);
+    validateRequiredString(value.enabledLabel, ["enabledLabel"], issues);
+    validateRequiredString(value.disabledLabel, ["disabledLabel"], issues);
+    if (typeof value.defaultEnabled !== "boolean") issues.push(issue("view.expected_boolean", ["defaultEnabled"], "A boolean is required."));
+    pushUnknownFields(value, new Set(["version", "label", "enabledLabel", "disabledLabel", "defaultEnabled"]), [], issues);
+  });
+}
+
+function matchesFacet(values, selected) {
+  return selected.length === 0 || selected.some((id) => values.includes(id));
+}
+
+function matchesSearch(project, search) {
+  const needle = search.trim().toLowerCase();
+  if (needle === "") return true;
+  const haystack = [project.title, project.summary, ...project.tags, ...project.technologies].join(" ").toLowerCase();
+  return haystack.includes(needle);
+}
+
+function periodSortKey(project) {
+  const period = project.period;
+  if (!period) return { rank: 2, key: "" };
+  return period.ongoing ? { rank: 0, key: period.start } : { rank: 1, key: period.end ?? period.start };
+}
+
+function compareOrdinal(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+
+export function filterProjects(model, query) {
+  const filtered = model.projects.filter((project) => matchesSearch(project, query.search)
+    && matchesFacet(project.categoryIds, query.categoryIds)
+    && matchesFacet(project.tags, query.tags));
+  if (query.sortChoiceId === "title") {
+    return filtered.slice().sort((a, b) => compareOrdinal(a.title, b.title));
+  }
+  if (query.sortChoiceId === "newest") {
+    return filtered
+      .map((project, index) => ({ project, index }))
+      .sort((a, b) => {
+        const left = periodSortKey(a.project);
+        const right = periodSortKey(b.project);
+        if (left.rank !== right.rank) return left.rank - right.rank;
+        if (left.key !== right.key) return left.key > right.key ? -1 : 1;
+        return a.index - b.index;
+      })
+      .map((entry) => entry.project);
+  }
+  return filtered;
+}
+
+export function summarizeProjects(projects) {
+  const counts = new Map();
+  for (const project of projects) {
+    for (const technology of project.technologies) {
+      counts.set(technology, (counts.get(technology) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || compareOrdinal(a[0], b[0]))
+    .map(([id, value]) => ({ id, label: id, value }));
+}
+
 function renderLink(link, content, key) {
   const href = selectLinkDestination(link);
   if (href === undefined) {
@@ -464,14 +618,94 @@ export function Portfolio({ model, renderIcon }) {
   return React.createElement("main", { className: "szd-portfolio-overview" }, children);
 }
 
+function projectsFacetControl(key, className, legend, items, selectedIds, resolveId, resolveLabel) {
+  if (items.length === 0) return null;
+  return React.createElement("fieldset", { className, key }, [
+    React.createElement("legend", { key: "legend" }, legend),
+    ...items.map((item) => {
+      const id = resolveId(item);
+      const selected = selectedIds.includes(id);
+      return React.createElement("label", { key: id, className: `${className}-choice`, "data-szd-portfolio-selected": selected ? "true" : undefined }, [
+        React.createElement("input", { type: "checkbox", defaultChecked: selected, key: "input" }),
+        React.createElement("span", { key: "label" }, resolveLabel(item)),
+      ]);
+    }),
+  ]);
+}
+
+export function Projects({ model, query }) {
+  checked(model, "projects", validateProjectsViewModelV1);
+  const results = filterProjects(model, query);
+  const availableTags = [...new Set(model.projects.flatMap((project) => project.tags))].sort(compareOrdinal);
+  const stateKey = JSON.stringify([query.search, [...query.categoryIds].sort(compareOrdinal), [...query.tags].sort(compareOrdinal), query.sortChoiceId]);
+
+  const controls = React.createElement("div", { className: "szd-portfolio-projects-controls", key: stateKey }, [
+    React.createElement("label", { className: "szd-portfolio-projects-search", key: "search" }, [
+      React.createElement("span", { key: "label" }, "Search"),
+      React.createElement("input", { type: "search", defaultValue: query.search, key: "input" }),
+    ]),
+    projectsFacetControl("categories", "szd-portfolio-projects-categories", "Categories", model.categories, query.categoryIds, (category) => category.id, (category) => category.label),
+    projectsFacetControl("tags", "szd-portfolio-projects-tags", "Tags", availableTags.map((tag) => ({ id: tag, label: tag })), query.tags, (tag) => tag.id, (tag) => tag.label),
+    model.sortChoices.length === 0 ? null : React.createElement("label", { className: "szd-portfolio-projects-sort", key: "sort" }, [
+      React.createElement("span", { key: "label" }, "Sort"),
+      React.createElement("select", { defaultValue: query.sortChoiceId, key: "select" }, model.sortChoices.map((choice) => React.createElement("option", { key: choice.id, value: choice.id }, choice.label))),
+    ]),
+  ]);
+
+  const list = results.length === 0
+    ? (model.emptyLabel === undefined ? null : React.createElement("p", { className: "szd-portfolio-projects-empty", key: "empty" }, model.emptyLabel))
+    : React.createElement("ul", { className: "szd-portfolio-projects-results", key: "results" }, results.map((project) =>
+      React.createElement("li", { className: "szd-portfolio-projects-card", key: project.id }, [
+        React.createElement("h3", { className: "szd-portfolio-projects-card-title", key: "title" }, project.title),
+        React.createElement("p", { className: "szd-portfolio-projects-card-summary", key: "summary" }, project.summary),
+        project.technologies.length === 0 ? null : React.createElement("ul", { className: "szd-portfolio-projects-card-technologies", key: "technologies" }, project.technologies.map((technology) => React.createElement("li", { key: technology }, technology))),
+        project.tags.length === 0 ? null : React.createElement("ul", { className: "szd-portfolio-projects-card-tags", key: "tags" }, project.tags.map((tag) => React.createElement("li", { key: tag }, tag))),
+        project.links.length === 0 ? null : React.createElement("div", { className: "szd-portfolio-projects-card-links", key: "links" }, project.links.map((link, index) => renderLink(link, link.label, `${project.id}-link-${index}`))),
+      ]),
+    ));
+
+  return React.createElement("section", { className: "szd-portfolio-projects-view", "aria-label": model.heading }, [
+    React.createElement("h2", { className: "szd-portfolio-projects-heading", key: "heading" }, model.heading),
+    controls,
+    list,
+  ]);
+}
+
+export function TextSizeControl({ model, value, onChange }) {
+  checked(model, "text-size", validateTextSizeViewModelV1);
+  return React.createElement("div", { className: "szd-portfolio-text-size", role: "radiogroup", "aria-label": model.label }, model.choices.map((choice) => {
+    const selected = choice.id === value;
+    return React.createElement("button", {
+      type: "button",
+      key: choice.id,
+      className: "szd-portfolio-text-size-choice",
+      role: "radio",
+      "aria-checked": selected,
+      "data-szd-portfolio-selected": selected ? "true" : undefined,
+      onClick: () => onChange(choice.id),
+    }, choice.label);
+  }));
+}
+
+export function ReaderModeControl({ model, enabled, onChange }) {
+  checked(model, "reader-mode", validateReaderModeViewModelV1);
+  return React.createElement("label", { className: "szd-portfolio-reader-mode", "data-szd-portfolio-selected": enabled ? "true" : undefined }, [
+    React.createElement("input", { type: "checkbox", key: "input", checked: enabled, "aria-label": model.label, onChange: (event) => onChange(event.target.checked) }),
+    React.createElement("span", { key: "label" }, enabled ? model.enabledLabel : model.disabledLabel),
+  ]);
+}
+
 export {
   ResolutionError,
   cvViewModelV1Contract,
   defineSource,
   portfolioViewModelV1Contract,
+  projectsViewModelV1Contract,
+  readerModeViewModelV1Contract,
   resolveSource,
   resolveSources,
   siteChromeViewModelV1Contract,
+  textSizeViewModelV1Contract,
   validateBrowserBootstrapV1,
   versionDisplayViewModelV1Contract,
 } from "./resolution.js";

@@ -79,3 +79,37 @@
   flex-wrap: wrap;
   gap: calc(var(--szd-portfolio-space) / 2);
 }
+
+.szd-portfolio-projects-view,
+.szd-portfolio-projects-controls,
+.szd-portfolio-projects-card {
+  display: grid;
+  gap: calc(var(--szd-portfolio-space) / 2);
+}
+
+.szd-portfolio-projects-categories,
+.szd-portfolio-projects-tags,
+.szd-portfolio-projects-results,
+.szd-portfolio-projects-card-technologies,
+.szd-portfolio-projects-card-tags,
+.szd-portfolio-projects-card-links,
+.szd-portfolio-text-size {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--szd-portfolio-space) / 2);
+  margin: 0;
+  padding: 0;
+}
+
+.szd-portfolio-projects-results,
+.szd-portfolio-projects-card-technologies,
+.szd-portfolio-projects-card-tags {
+  list-style: none;
+}
+
+.szd-portfolio-projects-categories-choice[data-szd-portfolio-selected="true"],
+.szd-portfolio-projects-tags-choice[data-szd-portfolio-selected="true"],
+.szd-portfolio-text-size-choice[data-szd-portfolio-selected="true"],
+.szd-portfolio-reader-mode[data-szd-portfolio-selected="true"] {
+  font-weight: bold;
+}

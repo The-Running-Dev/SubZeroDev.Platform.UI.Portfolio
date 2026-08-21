@@ -72,15 +72,22 @@ export interface SiteChromeViewModelV1 { readonly version: 1; readonly identity:
 export type CVTextV1 = { readonly kind: "text"; readonly value: string } | { readonly kind: "rich-text-slot"; readonly slotId: string };
 export interface CVViewModelV1 { readonly version: 1; readonly header: { readonly name: string; readonly headline?: string; readonly contact: readonly LinkCapabilityV1[] }; readonly sections: readonly ({ readonly kind: "summary"; readonly id: string; readonly heading: string; readonly body: CVTextV1 } | { readonly kind: "roles"; readonly id: string; readonly heading: string; readonly roles: readonly { readonly id: string; readonly title: string; readonly organization: string; readonly period: { readonly start: string; readonly end?: string; readonly ongoing: boolean }; readonly summary?: CVTextV1; readonly achievements: readonly CVTextV1[]; readonly technologies: readonly string[] }[] } | { readonly kind: "projects"; readonly id: string; readonly heading: string; readonly projects: readonly { readonly id: string; readonly name: string; readonly summary?: CVTextV1; readonly technologies: readonly string[]; readonly link?: LinkCapabilityV1 }[] } | { readonly kind: "education"; readonly id: string; readonly heading: string; readonly items: readonly { readonly id: string; readonly institution: string; readonly qualification: string; readonly period?: string }[] } | { readonly kind: "achievements"; readonly id: string; readonly heading: string; readonly items: readonly CVTextV1[] })[]; }
 export interface VersionDisplayViewModelV1 { readonly version: 1; readonly text: string; readonly prefix?: string; readonly link?: LinkCapabilityV1; }
+export interface ProjectsViewModelV1 { readonly version: 1; readonly heading: string; readonly projects: readonly ProjectCardViewModelV1[]; readonly categories: readonly { readonly id: string; readonly label: string }[]; readonly sortChoices: readonly { readonly id: string; readonly label: string }[]; readonly emptyLabel?: string; }
+export interface ProjectsQueryV1 { readonly search: string; readonly categoryIds: readonly string[]; readonly tags: readonly string[]; readonly sortChoiceId: string; }
+export interface TextSizeViewModelV1 { readonly version: 1; readonly label: string; readonly choices: readonly { readonly id: string; readonly label: string; readonly scaleToken: string }[]; readonly defaultChoiceId: string; }
+export interface ReaderModeViewModelV1 { readonly version: 1; readonly label: string; readonly enabledLabel: string; readonly disabledLabel: string; readonly defaultEnabled: boolean; }
 export interface SiteChromeProps { readonly model: SiteChromeViewModelV1; readonly renderIcon?: IconRenderer; }
 export interface RichTextSlot { readonly id: string; readonly content: ReactNode; }
 export interface CVProps { readonly model: CVViewModelV1; readonly richTextSlots?: readonly RichTextSlot[]; }
 export interface VersionDisplayProps { readonly model: VersionDisplayViewModelV1; }
+export interface ProjectsProps { readonly model: ProjectsViewModelV1; readonly query: ProjectsQueryV1; }
+export interface TextSizeControlProps { readonly model: TextSizeViewModelV1; readonly value: string; readonly onChange: (choiceId: string) => void; }
+export interface ReaderModeControlProps { readonly model: ReaderModeViewModelV1; readonly enabled: boolean; readonly onChange: (enabled: boolean) => void; }
 
 export type ValidationErrorCode = "view.validation_failed";
 
 export interface ValidationErrorOptions {
-  readonly modelKind: "site-chrome" | "cv" | "portfolio" | "version-display";
+  readonly modelKind: "site-chrome" | "cv" | "portfolio" | "version-display" | "projects" | "text-size" | "reader-mode";
   readonly issues: readonly ValidationIssue[];
   readonly cause?: unknown;
 }
@@ -97,24 +104,35 @@ export function Portfolio(props: PortfolioProps): ReactElement;
 export function SiteChrome(props: SiteChromeProps): ReactElement;
 export function CV(props: CVProps): ReactElement;
 export function VersionDisplay(props: VersionDisplayProps): ReactElement;
+export function Projects(props: ProjectsProps): ReactElement;
+export function TextSizeControl(props: TextSizeControlProps): ReactElement;
+export function ReaderModeControl(props: ReaderModeControlProps): ReactElement;
 export function validatePortfolioViewModelV1(input: unknown): ValidationResult<PortfolioViewModelV1>;
 export function validateSiteChromeViewModelV1(input: unknown): ValidationResult<SiteChromeViewModelV1>;
 export function validateCVViewModelV1(input: unknown): ValidationResult<CVViewModelV1>;
 export function validateVersionDisplayViewModelV1(input: unknown): ValidationResult<VersionDisplayViewModelV1>;
+export function validateProjectsViewModelV1(input: unknown): ValidationResult<ProjectsViewModelV1>;
+export function validateTextSizeViewModelV1(input: unknown): ValidationResult<TextSizeViewModelV1>;
+export function validateReaderModeViewModelV1(input: unknown): ValidationResult<ReaderModeViewModelV1>;
 export function selectLinkDestination(link: LinkCapabilityV1): string | undefined;
 export function flattenPortfolioTechnologies(model: PortfolioViewModelV1): readonly string[];
+export function filterProjects(model: ProjectsViewModelV1, query: ProjectsQueryV1): readonly ProjectCardViewModelV1[];
+export function summarizeProjects(projects: readonly ProjectCardViewModelV1[]): readonly { readonly id: string; readonly label: string; readonly value: number }[];
 
 export type ResolutionErrorCode = "consumer.validation_failed" | "consumer.validator_threw" | "projection.failed" | "fallback.invalid" | "source.failed" | "sources.failed" | "source.refresh_unavailable";
 export class ResolutionError extends Error { readonly code: ResolutionErrorCode; readonly sourceId?: string; readonly issues: readonly ValidationIssue[]; readonly causes: readonly ResolutionError[]; }
 export interface SourceProviderResult { readonly value: unknown; readonly metadata: readonly { readonly name: string; readonly value: string }[]; }
 export interface SourceProviderCapability { readonly kind: string; readonly publicDescriptor: readonly { readonly name: string; readonly value: string }[]; readonly resolve: (signal: unknown) => Promise<SourceProviderResult>; readonly refresh?: (signal: unknown) => Promise<SourceProviderResult>; }
-export interface ViewModelContract<T> { readonly kind: "site-chrome" | "cv" | "portfolio" | "version-display"; readonly validate: Validator<T>; }
+export interface ViewModelContract<T> { readonly kind: "site-chrome" | "cv" | "portfolio" | "version-display" | "projects" | "text-size" | "reader-mode"; readonly validate: Validator<T>; }
 export interface DefinedSource<T = PortfolioViewModelV1> { readonly id: string; readonly timing: "build" | "browser"; }
 export interface SourceDefinitionInput<TRaw, TView> { readonly id: string; readonly timing: "build" | "browser"; readonly provider: SourceProviderCapability; readonly validateRaw: Validator<TRaw>; readonly project: (raw: TRaw) => unknown; readonly viewModel: ViewModelContract<TView>; readonly fallback?: unknown; }
 export const portfolioViewModelV1Contract: ViewModelContract<PortfolioViewModelV1>;
 export const siteChromeViewModelV1Contract: ViewModelContract<SiteChromeViewModelV1>;
 export const cvViewModelV1Contract: ViewModelContract<CVViewModelV1>;
 export const versionDisplayViewModelV1Contract: ViewModelContract<VersionDisplayViewModelV1>;
+export const projectsViewModelV1Contract: ViewModelContract<ProjectsViewModelV1>;
+export const textSizeViewModelV1Contract: ViewModelContract<TextSizeViewModelV1>;
+export const readerModeViewModelV1Contract: ViewModelContract<ReaderModeViewModelV1>;
 export function defineSource<TRaw, TView>(input: SourceDefinitionInput<TRaw, TView>): DefinedSource<TView>;
 export type Resolution<T> = { readonly status: "ready"; readonly sourceId: string; readonly data: T; readonly metadata: SourceProviderResult["metadata"] } | { readonly status: "fallback"; readonly sourceId: string; readonly data: T; readonly error: ResolutionError; readonly metadata: SourceProviderResult["metadata"] } | { readonly status: "error"; readonly sourceId: string; readonly error: ResolutionError };
 export function resolveSource<T>(source: DefinedSource<T>, signal: unknown): Promise<Resolution<T>>;

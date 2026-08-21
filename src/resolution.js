@@ -1,7 +1,10 @@
 import {
   validateCVViewModelV1,
   validatePortfolioViewModelV1,
+  validateProjectsViewModelV1,
+  validateReaderModeViewModelV1,
   validateSiteChromeViewModelV1,
+  validateTextSizeViewModelV1,
   validateVersionDisplayViewModelV1,
 } from "./index.js";
 
@@ -23,12 +26,18 @@ export const portfolioViewModelV1Contract = Object.freeze({ kind: "portfolio", v
 export const siteChromeViewModelV1Contract = Object.freeze({ kind: "site-chrome", validate: validateSiteChromeViewModelV1 });
 export const cvViewModelV1Contract = Object.freeze({ kind: "cv", validate: validateCVViewModelV1 });
 export const versionDisplayViewModelV1Contract = Object.freeze({ kind: "version-display", validate: validateVersionDisplayViewModelV1 });
+export const projectsViewModelV1Contract = Object.freeze({ kind: "projects", validate: validateProjectsViewModelV1 });
+export const textSizeViewModelV1Contract = Object.freeze({ kind: "text-size", validate: validateTextSizeViewModelV1 });
+export const readerModeViewModelV1Contract = Object.freeze({ kind: "reader-mode", validate: validateReaderModeViewModelV1 });
 
 const contracts = new Map([
   ["portfolio", portfolioViewModelV1Contract],
   ["site-chrome", siteChromeViewModelV1Contract],
   ["cv", cvViewModelV1Contract],
   ["version-display", versionDisplayViewModelV1Contract],
+  ["projects", projectsViewModelV1Contract],
+  ["text-size", textSizeViewModelV1Contract],
+  ["reader-mode", readerModeViewModelV1Contract],
 ]);
 
 function bootstrapIssue(path) { return { code: "bootstrap.invalid", path, message: "Invalid browser bootstrap." }; }
