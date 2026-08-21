@@ -37,7 +37,10 @@ test("S10.1 and S10.6 packed root installs, SSR-renders, and Vite-bundles with R
     assert.equal(assets.some((asset) => asset.endsWith(".css")), false);
     const consumerManifest = JSON.parse(await readFile(join(consumer, "node_modules", "subzerodev-platform-ui-portfolio", "package.json"), "utf8"));
     assert.deepEqual(Object.keys(consumerManifest.dependencies ?? {}), []);
-    assert.equal(consumerManifest.exports["./builder"], undefined);
+    assert.deepEqual(consumerManifest.exports["./builder"], {
+      types: "./src/builder.d.ts",
+      default: "./src/builder.js",
+    });
     assert.equal(consumerManifest.exports["./browser"], undefined);
     assert.equal(consumerManifest.exports["./data-json"], undefined);
   }

@@ -8,7 +8,14 @@
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
     },
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./builder": {
+      "types": "./src/builder.d.ts",
+      "default": "./src/builder.js"
+    }
+  },
+  "bin": {
+    "subzerodev-platform-ui-portfolio": "./src/cli.js"
   },
   "files": [
     "src"
