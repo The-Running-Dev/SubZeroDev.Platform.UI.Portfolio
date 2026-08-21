@@ -463,3 +463,15 @@ export function Portfolio({ model, renderIcon }) {
 
   return React.createElement("main", { className: "szd-portfolio-overview" }, children);
 }
+
+export {
+  ResolutionError,
+  cvViewModelV1Contract,
+  defineSource,
+  portfolioViewModelV1Contract,
+  resolveSource,
+  resolveSources,
+  siteChromeViewModelV1Contract,
+  validateBrowserBootstrapV1,
+  versionDisplayViewModelV1Contract,
+} from "./resolution.js";

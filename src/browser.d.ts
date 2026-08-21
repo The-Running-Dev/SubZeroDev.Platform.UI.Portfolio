@@ -1,0 +1,8 @@
+import type { ReactElement } from "react";
+import type { DefinedSource, ResolutionError, ResolvedSourceValueV1, ValidationIssue } from "./index.js";
+export type BrowserErrorCode = "bootstrap.invalid" | "browser.sources_failed" | "browser.hydration_failed" | "generation.superseded" | "generation.disposed";
+export class BrowserError extends Error { readonly code: BrowserErrorCode; readonly routePath?: string; readonly sourceId?: string; readonly issues: readonly ValidationIssue[]; readonly causes: readonly ResolutionError[]; }
+export type BrowserRouteResult = { readonly status: "loading"; readonly routePath: string } | { readonly status: "ready" | "fallback"; readonly routePath: string; readonly sources: readonly ResolvedSourceValueV1[] } | { readonly status: "error"; readonly routePath: string; readonly error: BrowserError };
+export interface HydratePortfolioRouteOptions { readonly bootstrap: unknown; readonly sources: readonly DefinedSource[]; readonly container: Element; readonly unresolved: ReactElement; readonly compose: (sources: readonly ResolvedSourceValueV1[]) => ReactElement; readonly renderError: (error: BrowserError) => ReactElement; }
+export interface BrowserRouteController { readonly initialPublication: Promise<Exclude<BrowserRouteResult, { readonly status: "loading" }>>; readonly snapshot: () => BrowserRouteResult; readonly refresh: () => Promise<Exclude<BrowserRouteResult, { readonly status: "loading" }>>; readonly subscribe: (listener: () => void) => () => void; readonly dispose: () => void; }
+export function hydratePortfolioRoute(options: HydratePortfolioRouteOptions): BrowserRouteController;

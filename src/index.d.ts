@@ -103,3 +103,22 @@ export function validateCVViewModelV1(input: unknown): ValidationResult<CVViewMo
 export function validateVersionDisplayViewModelV1(input: unknown): ValidationResult<VersionDisplayViewModelV1>;
 export function selectLinkDestination(link: LinkCapabilityV1): string | undefined;
 export function flattenPortfolioTechnologies(model: PortfolioViewModelV1): readonly string[];
+
+export type ResolutionErrorCode = "consumer.validation_failed" | "consumer.validator_threw" | "projection.failed" | "fallback.invalid" | "source.failed" | "sources.failed" | "source.refresh_unavailable";
+export class ResolutionError extends Error { readonly code: ResolutionErrorCode; readonly sourceId?: string; readonly issues: readonly ValidationIssue[]; readonly causes: readonly ResolutionError[]; }
+export interface SourceProviderResult { readonly value: unknown; readonly metadata: readonly { readonly name: string; readonly value: string }[]; }
+export interface SourceProviderCapability { readonly kind: string; readonly publicDescriptor: readonly { readonly name: string; readonly value: string }[]; readonly resolve: (signal: unknown) => Promise<SourceProviderResult>; readonly refresh?: (signal: unknown) => Promise<SourceProviderResult>; }
+export interface ViewModelContract<T> { readonly kind: "site-chrome" | "cv" | "portfolio" | "version-display"; readonly validate: Validator<T>; }
+export interface DefinedSource<T = PortfolioViewModelV1> { readonly id: string; readonly timing: "build" | "browser"; }
+export interface SourceDefinitionInput<TRaw, TView> { readonly id: string; readonly timing: "build" | "browser"; readonly provider: SourceProviderCapability; readonly validateRaw: Validator<TRaw>; readonly project: (raw: TRaw) => unknown; readonly viewModel: ViewModelContract<TView>; readonly fallback?: unknown; }
+export const portfolioViewModelV1Contract: ViewModelContract<PortfolioViewModelV1>;
+export const siteChromeViewModelV1Contract: ViewModelContract<SiteChromeViewModelV1>;
+export const cvViewModelV1Contract: ViewModelContract<CVViewModelV1>;
+export const versionDisplayViewModelV1Contract: ViewModelContract<VersionDisplayViewModelV1>;
+export function defineSource<TRaw, TView>(input: SourceDefinitionInput<TRaw, TView>): DefinedSource<TView>;
+export type Resolution<T> = { readonly status: "ready"; readonly sourceId: string; readonly data: T; readonly metadata: SourceProviderResult["metadata"] } | { readonly status: "fallback"; readonly sourceId: string; readonly data: T; readonly error: ResolutionError; readonly metadata: SourceProviderResult["metadata"] } | { readonly status: "error"; readonly sourceId: string; readonly error: ResolutionError };
+export function resolveSource<T>(source: DefinedSource<T>, signal: unknown): Promise<Resolution<T>>;
+export function resolveSources(sources: readonly DefinedSource[], signal: unknown): Promise<readonly Resolution<PortfolioViewModelV1>[]>;
+export type ResolvedSourceValueV1 = { readonly sourceId: string; readonly status: "ready"; readonly value: PortfolioViewModelV1 } | { readonly sourceId: string; readonly status: "fallback"; readonly value: PortfolioViewModelV1; readonly fallbackError: ResolutionError };
+export interface BrowserBootstrapV1 { readonly version: 1; readonly routePath: string; readonly mode: "build-only" | "browser-gated"; readonly modelVersions: readonly { readonly sourceId: string; readonly kind: string; readonly version: 1 }[]; readonly buildModels: readonly { readonly sourceId: string; readonly value: PortfolioViewModelV1; readonly fallbackError?: { readonly code: string; readonly message: string; readonly sourceId?: string; readonly issues: readonly ValidationIssue[] } }[]; readonly browserSourceIds: readonly string[]; }
+export function validateBrowserBootstrapV1(input: unknown): ValidationResult<BrowserBootstrapV1>;

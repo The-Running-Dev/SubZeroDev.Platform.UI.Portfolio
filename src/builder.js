@@ -5,9 +5,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CV, Portfolio } from "./index.js";
+import { defineSource, isDefinedSource, resolveSource, sourceDefinition } from "./resolution.js";
 
 const presentationRenderers = { portfolio: Portfolio, cv: CV };
-const definitions = new WeakMap();
 const here = dirname(fileURLToPath(import.meta.url));
 const manifestPath = join(here, "builder", "provenance.json");
 const artifactName = ".szd-portfolio-artifact.json";
@@ -43,12 +43,7 @@ function templateOverlayBaseline(value) {
 }
 function contained(root, value) { const absolute = isAbsolute(value) ? resolve(value) : resolve(root, value); return (absolute === resolve(root) || relative(resolve(root), absolute) && !relative(resolve(root), absolute).startsWith("..")) ? absolute : undefined; }
 function outputFile(route) { return route === "/" ? "index.html" : `${route.replace(/^\//, "")}/index.html`; }
-function declaredSource(source) { return definitions.get(source); }
-
-export function defineSource(input) {
-  if (!record(input) || typeof input.id !== "string" || !input.id || !["build", "browser"].includes(input.timing) || !input.provider || typeof input.provider.resolve !== "function" || typeof input.validateRaw !== "function" || typeof input.project !== "function" || !input.viewModel || typeof input.viewModel.validate !== "function") throw new BuilderError("config.invalid", "Invalid source declaration");
-  const source = Object.freeze({ id: input.id, timing: input.timing }); definitions.set(source, input); return source;
-}
+export { defineSource };
 
 export function definePortfolioSite(config) { const result = validatePortfolioSiteConfigV1(config); if (!result.ok) throw new BuilderError("config.invalid", "Invalid site configuration", { issues: result.issues }); return config; }
 export function validatePortfolioSiteConfigV1(input) {
@@ -61,8 +56,8 @@ export function validatePortfolioSiteConfigV1(input) {
   if (!Array.isArray(input.sources)) issues.push(issue("config.sources_required", ["sources"]));
   if (!record(input.metadata) || typeof input.metadata.title !== "string" || !input.metadata.title) issues.push(issue("config.metadata_invalid", ["metadata"]));
   for (const key of ["styles", "navigation", "publicAssets"]) if (!Array.isArray(input[key])) issues.push(issue("config.array_required", [key]));
-  const ids = new Set(); for (const [i, source] of (input.sources ?? []).entries()) { const def = declaredSource(source); if (!def) issues.push(issue("config.source_invalid", ["sources", i])); else if (ids.has(source.id)) issues.push(issue("config.duplicate_source", ["sources", i, "id"])); else ids.add(source.id); }
-  const paths = new Set(); for (const [i, route] of (input.routes ?? []).entries()) { if (!record(route) || typeof route.path !== "string" || !route.path.startsWith("/") || route.path.includes("..")) { issues.push(issue("config.route_invalid", ["routes", i])); continue; } if (paths.has(route.path)) issues.push(issue("config.duplicate_route", ["routes", i, "path"])); paths.add(route.path); if (!Array.isArray(route.requiredSourceIds) || !record(route.presentation) || !Object.hasOwn(presentationRenderers, route.presentation.kind)) issues.push(issue("config.route_invalid", ["routes", i])); else for (const id of route.requiredSourceIds) if (!ids.has(id)) issues.push(issue("config.missing_source", ["routes", i, "requiredSourceIds"])); }
+  const ids = new Set(); for (const [i, source] of (input.sources ?? []).entries()) { if (!isDefinedSource(source)) issues.push(issue("config.source_invalid", ["sources", i])); else if (ids.has(source.id)) issues.push(issue("config.duplicate_source", ["sources", i, "id"])); else ids.add(source.id); }
+  const paths = new Set(); for (const [i, route] of (input.routes ?? []).entries()) { if (!record(route) || typeof route.path !== "string" || !route.path.startsWith("/") || route.path.includes("..")) { issues.push(issue("config.route_invalid", ["routes", i])); continue; } if (paths.has(route.path)) issues.push(issue("config.duplicate_route", ["routes", i, "path"])); paths.add(route.path); if (!Array.isArray(route.requiredSourceIds) || !record(route.presentation) || !Object.hasOwn(presentationRenderers, route.presentation.kind)) { issues.push(issue("config.route_invalid", ["routes", i])); continue; } for (const id of route.requiredSourceIds) if (!ids.has(id)) issues.push(issue("config.missing_source", ["routes", i, "requiredSourceIds"])); const modelSourceId = route.presentation.modelSourceId; const modelSource = (input.sources ?? []).find((source) => isDefinedSource(source) && source.id === modelSourceId); if (typeof modelSourceId !== "string" || !route.requiredSourceIds.includes(modelSourceId) || !modelSource || sourceDefinition(modelSource).viewModel.kind !== route.presentation.kind) issues.push(issue("config.presentation_source_invalid", ["routes", i, "presentation", "modelSourceId"])); }
   return issues.length ? { ok: false, issues } : { ok: true, value: input };
 }
 
@@ -83,7 +78,7 @@ export function validateProvenanceManifestV1(input) {
   return issues.length === 0 ? { ok: true, value: input } : { ok: false, issues };
 }
 async function provenance() { const input = JSON.parse(await readFile(manifestPath, "utf8")); const result = validateProvenanceManifestV1(input); if (!result.ok) throw new BuilderError("provenance.invalid", "Bundled provenance manifest is invalid", { issues: result.issues }); return result.value; }
-async function resolveBuildSource(source) { const def = declaredSource(source); try { const result = await def.provider.resolve({ cancelled: false, onCancel: () => () => {} }); const raw = def.validateRaw(result.value); if (!raw?.ok) throw new BuilderError("source_set.failed", "Consumer validation failed", { sourceId: source.id, issues: raw?.issues }); let candidate; try { candidate = def.project(raw.value); } catch (cause) { throw new BuilderError("source_set.failed", "Projection failed", { sourceId: source.id, cause }); } const view = def.viewModel.validate(candidate); if (!view?.ok) throw new BuilderError("source_set.failed", "View validation failed", { sourceId: source.id, issues: view?.issues }); return { sourceId: source.id, status: "ready", value: view.value }; } catch (error) { if (error instanceof BuilderError) throw error; if (def.fallback !== undefined) { const fallback = def.viewModel.validate(def.fallback); if (fallback?.ok) return { sourceId: source.id, status: "fallback", value: fallback.value, fallbackError: error }; throw new BuilderError("source_set.failed", "Fallback invalid", { sourceId: source.id, issues: fallback?.issues }); } throw new BuilderError("source_set.failed", "Provider resolution failed", { sourceId: source.id, cause: error }); } }
+async function resolveBuildSource(source) { const resolved = await resolveSource(source, { cancelled: false, onCancel: () => () => {} }); if (resolved.status === "error") throw new BuilderError("source_set.failed", "Source resolution failed", { sourceId: source.id, issues: resolved.error.issues, cause: resolved.error }); return resolved.status === "ready" ? { sourceId: source.id, status: "ready", value: resolved.data } : { sourceId: source.id, status: "fallback", value: resolved.data, fallbackError: resolved.error }; }
 async function write(path, data) { if (process.env.SZD_PORTFOLIO_FAIL_AT === "write") throw new Error("injected write failure"); await mkdir(dirname(path), { recursive: true }); await writeFile(path, data); }
 async function fileDigests(root) { const entries = []; async function walk(dir) { for (const entry of await (await import("node:fs/promises")).readdir(dir, { withFileTypes: true })) { const absolute = join(dir, entry.name); if (entry.isDirectory()) await walk(absolute); else entries.push({ path: relative(root, absolute).replaceAll("\\", "/"), digest: digest(await readFile(absolute)) }); } } await walk(root); return entries.sort((a, b) => a.path.localeCompare(b.path)); }
 export async function buildPortfolioSite(paths) {
@@ -93,9 +88,31 @@ export async function buildPortfolioSite(paths) {
   try { await access(lease); throw new BuilderError("lease.unavailable", "Writer lease unavailable", { path: lease }); } catch (error) { if (error instanceof BuilderError) throw error; }
   await writeFile(lease, canonical({ version: 1, operation: "build", normalizedTargetPath: out, ownerId: randomUUID() })); const staging = `${out}.staging-${randomUUID()}`; const previous = `${out}.previous-${randomUUID()}`;
   try {
-    const resolved = new Map(); for (const source of config.sources) if (source.timing === "build") resolved.set(source.id, await resolveBuildSource(source));
-    for (const route of config.routes) for (const id of route.requiredSourceIds) if (!resolved.has(id)) throw new BuilderError("route.invalid", "Route requires a non-build source", { routePath: route.path, sourceId: id });
-    for (const route of config.routes) { const sourceId = route.presentation.modelSourceId; const model = resolved.get(sourceId)?.value; if (!model) throw new BuilderError("route.invalid", "Presentation source missing", { routePath: route.path, sourceId }); const Renderer = presentationRenderers[route.presentation.kind]; if (!Renderer) throw new BuilderError("route.invalid", "Unsupported presentation kind", { routePath: route.path }); const html = `<!doctype html><html lang="${config.metadata.language ?? "en"}"><head><meta charset="utf-8"><title>${route.metadata?.title ?? config.metadata.title}</title></head><body>${renderToStaticMarkup(React.createElement(Renderer, { model }))}<script type="application/json" id="szd-portfolio-bootstrap">${JSON.stringify({ version: 1, routePath: route.path, mode: "build-only", modelVersions: [{ sourceId, version: 1 }], buildModels: [{ sourceId, value: model }], browserSourceIds: [] }).replaceAll("<", "\\u003c")}</script><script type="module" src="/assets/szd-portfolio-bootstrap.js"></script></body></html>`; await write(join(staging, outputFile(route.path)), html); }
+    const resolved = new Map(); const sourcesById = new Map(config.sources.map((source) => [source.id, source])); for (const source of config.sources) if (source.timing === "build") resolved.set(source.id, await resolveBuildSource(source));
+    for (const route of config.routes) {
+      const required = route.requiredSourceIds.map((id) => sourcesById.get(id));
+      if (required.some((source) => source === undefined)) throw new BuilderError("route.invalid", "Route source is missing", { routePath: route.path });
+      const browserSources = required.filter((source) => source.timing === "browser");
+      const buildSources = required.filter((source) => source.timing === "build");
+      const mode = browserSources.length === 0 ? "build-only" : "browser-gated";
+      const modelVersions = required.map((source) => ({ sourceId: source.id, kind: sourceDefinition(source).viewModel.kind, version: 1 }));
+      const buildModels = buildSources.map((source) => {
+        const result = resolved.get(source.id);
+        if (!result) throw new BuilderError("route.invalid", "Build source is missing", { routePath: route.path, sourceId: source.id });
+        return result.fallbackError === undefined ? { sourceId: source.id, value: result.value } : { sourceId: source.id, value: result.value, fallbackError: { code: result.fallbackError.code, message: result.fallbackError.message, sourceId: result.fallbackError.sourceId, issues: result.fallbackError.issues } };
+      });
+      const bootstrap = { version: 1, routePath: route.path, mode, modelVersions, buildModels, browserSourceIds: browserSources.map((source) => source.id) };
+      let body;
+      if (mode === "browser-gated") body = renderToStaticMarkup(React.createElement("div", { className: "szd-portfolio-unresolved", "data-szd-portfolio-state": "unresolved" }));
+      else {
+        const sourceId = route.presentation.modelSourceId; const model = resolved.get(sourceId)?.value;
+        if (!model) throw new BuilderError("route.invalid", "Presentation source missing", { routePath: route.path, sourceId });
+        const Renderer = presentationRenderers[route.presentation.kind]; if (!Renderer) throw new BuilderError("route.invalid", "Unsupported presentation kind", { routePath: route.path });
+        body = renderToStaticMarkup(React.createElement(Renderer, { model }));
+      }
+      const html = `<!doctype html><html lang="${config.metadata.language ?? "en"}"><head><meta charset="utf-8"><title>${route.metadata?.title ?? config.metadata.title}</title></head><body>${body}<script type="application/json" id="szd-portfolio-bootstrap">${JSON.stringify(bootstrap).replaceAll("<", "\\u003c")}</script><script type="module" src="/assets/szd-portfolio-bootstrap.js"></script></body></html>`;
+      await write(join(staging, outputFile(route.path)), html);
+    }
     await write(join(staging, "assets/szd-portfolio-bootstrap.js"), "export {};\n");
     for (const style of config.styles) if (style.kind === "consumer-stylesheet") { const source = contained(root, style.sourcePath); const destination = join(staging, style.outputPath); if (!source) throw new BuilderError("asset.invalid", "Style escapes root"); await mkdir(dirname(destination), { recursive: true }); await cp(source, destination); }
     for (const asset of config.publicAssets) { const source = contained(root, asset.sourcePath); const destination = join(staging, asset.outputPath); if (!source) throw new BuilderError("asset.invalid", "Asset escapes root"); await mkdir(dirname(destination), { recursive: true }); await cp(source, destination); }
