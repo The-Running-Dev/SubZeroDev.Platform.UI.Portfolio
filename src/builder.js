@@ -20,6 +20,29 @@ function canonical(value) { if (Array.isArray(value)) return `[${value.map(canon
 function digest(value) { return `sha256:${createHash("sha256").update(typeof value === "string" ? value : canonical(value)).digest("hex")}`; }
 function issue(code, path) { return { code, path, message: code }; }
 function record(value) { return value !== null && typeof value === "object" && !Array.isArray(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null); }
+function exactKeys(value, keys) { const actual = Object.keys(value).sort(); const expected = [...keys].sort(); return actual.length === expected.length && actual.every((key, index) => key === expected[index]); }
+function immutableDigest(value) { return typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value) && !/^sha256:0{64}$/.test(value); }
+function immutableCommit(value) { return typeof value === "string" && /^[0-9a-f]{40}$/.test(value) && !/^0{40}$/.test(value); }
+function relativeManifestPath(value) { return typeof value === "string" && value.length > 0 && !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."); }
+function fileDigestList(value) {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  const paths = new Set();
+  let previous;
+  for (const entry of value) {
+    if (!record(entry) || !exactKeys(entry, ["path", "digest"]) || !relativeManifestPath(entry.path) || !immutableDigest(entry.digest) || paths.has(entry.path) || (previous !== undefined && previous >= entry.path)) return false;
+    paths.add(entry.path);
+    previous = entry.path;
+  }
+  return true;
+}
+function repositoryBaseline(value, consumer = false) {
+  const keys = consumer ? ["repository", "commit", "clean", "files"] : ["repository", "commit", "files"];
+  return record(value) && exactKeys(value, keys) && typeof value.repository === "string" && value.repository.length > 0 && immutableCommit(value.commit) && (!consumer || value.clean === true) && fileDigestList(value.files);
+}
+function templateOverlayBaseline(value) {
+  if (!record(value) || !exactKeys(value, ["imageDigest", "observedTags", "templateFiles", "overlayRules", "effectiveFiles", "effectiveTreeDigest"]) || !immutableDigest(value.imageDigest) || !immutableDigest(value.effectiveTreeDigest) || !Array.isArray(value.observedTags) || !value.observedTags.every((tag) => typeof tag === "string" && tag.length > 0) || !fileDigestList(value.templateFiles) || !fileDigestList(value.effectiveFiles) || !Array.isArray(value.overlayRules) || value.overlayRules.length === 0) return false;
+  return value.overlayRules.every((rule, index) => record(rule) && exactKeys(rule, ["order", "operation", "path"]) && rule.order === index + 1 && ["include", "exclude", "replace"].includes(rule.operation) && typeof rule.path === "string" && rule.path.length > 0);
+}
 function contained(root, value) { const absolute = isAbsolute(value) ? resolve(value) : resolve(root, value); return (absolute === resolve(root) || relative(resolve(root), absolute) && !relative(resolve(root), absolute).startsWith("..")) ? absolute : undefined; }
 function outputFile(route) { return route === "/" ? "index.html" : `${route.replace(/^\//, "")}/index.html`; }
 function declaredSource(source) { return definitions.get(source); }
@@ -52,8 +75,14 @@ export async function loadPortfolioConfig(rootDir, configPath) {
 }
 
 export function validateProvenanceManifestV1(input) {
-  if (!record(input) || input.version !== 1 || !record(input.deliveryMechanics) || !record(input.consumerOverlay) || input.consumerOverlay.clean !== true || !record(input.effectiveTemplateOverlay)) return { ok: false, issues: [issue("provenance.invalid", [])] };
-  const actual = digest({ ...input, manifestDigest: "" }); return input.manifestDigest === actual ? { ok: true, value: input } : { ok: false, issues: [issue("provenance.digest_invalid", ["manifestDigest"])] };
+  if (!record(input) || !exactKeys(input, ["version", "manifestDigest", "deliveryMechanics", "consumerOverlay", "effectiveTemplateOverlay"])) return { ok: false, issues: [issue("provenance.expected_object", [])] };
+  const issues = [];
+  if (input.version !== 1) issues.push(issue("provenance.version_invalid", ["version"]));
+  if (!repositoryBaseline(input.deliveryMechanics)) issues.push(issue("provenance.delivery_invalid", ["deliveryMechanics"]));
+  if (!repositoryBaseline(input.consumerOverlay, true)) issues.push(issue("provenance.consumer_invalid", ["consumerOverlay"]));
+  if (!templateOverlayBaseline(input.effectiveTemplateOverlay)) issues.push(issue("provenance.template_invalid", ["effectiveTemplateOverlay"]));
+  if (!immutableDigest(input.manifestDigest) || input.manifestDigest !== digest({ ...input, manifestDigest: "" })) issues.push(issue("provenance.digest_invalid", ["manifestDigest"]));
+  return issues.length === 0 ? { ok: true, value: input } : { ok: false, issues };
 }
 async function provenance() { const input = JSON.parse(await readFile(manifestPath, "utf8")); const result = validateProvenanceManifestV1(input); if (!result.ok) throw new BuilderError("provenance.invalid", "Bundled provenance manifest is invalid", { issues: result.issues }); return result.value; }
 async function resolveBuildSource(source) { const def = declaredSource(source); try { const result = await def.provider.resolve({ cancelled: false, onCancel: () => () => {} }); const raw = def.validateRaw(result.value); if (!raw?.ok) throw new BuilderError("source_set.failed", "Consumer validation failed", { sourceId: source.id, issues: raw?.issues }); let candidate; try { candidate = def.project(raw.value); } catch (cause) { throw new BuilderError("source_set.failed", "Projection failed", { sourceId: source.id, cause }); } const view = def.viewModel.validate(candidate); if (!view?.ok) throw new BuilderError("source_set.failed", "View validation failed", { sourceId: source.id, issues: view?.issues }); return { sourceId: source.id, status: "ready", value: view.value }; } catch (error) { if (error instanceof BuilderError) throw error; if (def.fallback !== undefined) { const fallback = def.viewModel.validate(def.fallback); if (fallback?.ok) return { sourceId: source.id, status: "fallback", value: fallback.value, fallbackError: error }; throw new BuilderError("source_set.failed", "Fallback invalid", { sourceId: source.id, issues: fallback?.issues }); } throw new BuilderError("source_set.failed", "Provider resolution failed", { sourceId: source.id, cause: error }); } }

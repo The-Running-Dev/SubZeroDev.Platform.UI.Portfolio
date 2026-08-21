@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,17 @@ const root = new URL("..", import.meta.url).pathname;
 const builderUrl = pathToFileURL(join(root, "src/builder.js")).href;
 const model = { version: 1, header: { title: "Built" }, statistics: [], categories: [], technologies: [], recentProjects: [] };
 const cvModel = { version: 1, header: { name: "Built", contact: [] }, sections: [] };
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function withManifestDigest(value) {
+  const candidate = { ...value, manifestDigest: "" };
+  return { ...candidate, manifestDigest: `sha256:${createHash("sha256").update(canonical(candidate)).digest("hex")}` };
+}
 
 async function fixture({ route = "/work", invalid = false, badConfig = false, kind = "portfolio" } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-builder-"));
@@ -75,6 +87,79 @@ test("S11.4 validates the package-bundled provenance manifest offline", async ()
   const manifest = JSON.parse(await readFile(join(root, "src/builder/provenance.json"), "utf8"));
   assert.equal(validateProvenanceManifestV1(manifest).ok, true);
   assert.equal(validateProvenanceManifestV1({ ...manifest, manifestDigest: "sha256:bad" }).ok, false);
+  assert.equal(manifest.deliveryMechanics.commit, "77209c69d9464156c38f62d47babe1e30d5a53ec");
+  assert.equal(manifest.consumerOverlay.commit, "1bfa007c9211b60294b4fc56fbd9db8866724ef8");
+  assert.equal(manifest.effectiveTemplateOverlay.imageDigest, "sha256:c167a4e1b6440da8e778ec1303a7441d480bde98965cdad36a02c463162f76d2");
+  assert.equal(manifest.effectiveTemplateOverlay.effectiveTreeDigest, "sha256:9d78023bb20b21c289ca55ccaf9ec9c5003a1a0dc200a78ce08a0696cee5e84f");
+  assert.equal(manifest.manifestDigest, "sha256:234c1473fb5bc41d19da7ddc315747969ed46c7760ad190deef7d9831c8e3beb");
+  assert.ok(manifest.deliveryMechanics.files.length > 0);
+  assert.ok(manifest.consumerOverlay.files.length > 0);
+  assert.ok(manifest.effectiveTemplateOverlay.templateFiles.length > 0);
+  assert.ok(manifest.effectiveTemplateOverlay.effectiveFiles.length > 0);
+});
+
+test("S11.4 rejects every provenance-manifest validation branch", async () => {
+  const manifest = JSON.parse(await readFile(join(root, "src/builder/provenance.json"), "utf8"));
+  const changed = (mutate) => {
+    const value = structuredClone(manifest);
+    mutate(value);
+    return withManifestDigest(value);
+  };
+  const cases = [
+    ["shape", null, "provenance.expected_object"],
+    ["unknown top-level field", changed((value) => { value.unexpected = true; }), "provenance.expected_object"],
+    ["version", withManifestDigest({ ...manifest, version: 2 }), "provenance.version_invalid"],
+    ["delivery object", changed((value) => { value.deliveryMechanics = null; }), "provenance.delivery_invalid"],
+    ["delivery unknown field", changed((value) => { value.deliveryMechanics.unexpected = true; }), "provenance.delivery_invalid"],
+    ["delivery repository", changed((value) => { value.deliveryMechanics.repository = ""; }), "provenance.delivery_invalid"],
+    ["delivery commit shape", changed((value) => { value.deliveryMechanics.commit = "abc"; }), "provenance.delivery_invalid"],
+    ["delivery zero commit", changed((value) => { value.deliveryMechanics.commit = "0".repeat(40); }), "provenance.delivery_invalid"],
+    ["delivery files type", changed((value) => { value.deliveryMechanics.files = null; }), "provenance.delivery_invalid"],
+    ["delivery files empty", changed((value) => { value.deliveryMechanics.files = []; }), "provenance.delivery_invalid"],
+    ["file object", changed((value) => { value.deliveryMechanics.files[0] = null; }), "provenance.delivery_invalid"],
+    ["file unknown field", changed((value) => { value.deliveryMechanics.files[0].unexpected = true; }), "provenance.delivery_invalid"],
+    ["file path absolute", changed((value) => { value.deliveryMechanics.files[0].path = "/escape"; }), "provenance.delivery_invalid"],
+    ["file path parent", changed((value) => { value.deliveryMechanics.files[0].path = "../escape"; }), "provenance.delivery_invalid"],
+    ["file path separator", changed((value) => { value.deliveryMechanics.files[0].path = "bad\\path"; }), "provenance.delivery_invalid"],
+    ["file digest shape", changed((value) => { value.deliveryMechanics.files[0].digest = "sha256:bad"; }), "provenance.delivery_invalid"],
+    ["file zero digest", changed((value) => { value.deliveryMechanics.files[0].digest = `sha256:${"0".repeat(64)}`; }), "provenance.delivery_invalid"],
+    ["duplicate file path", changed((value) => { value.deliveryMechanics.files[1].path = value.deliveryMechanics.files[0].path; }), "provenance.delivery_invalid"],
+    ["unsorted files", changed((value) => { [value.deliveryMechanics.files[0], value.deliveryMechanics.files[1]] = [value.deliveryMechanics.files[1], value.deliveryMechanics.files[0]]; }), "provenance.delivery_invalid"],
+    ["consumer", withManifestDigest({ ...manifest, consumerOverlay: { ...manifest.consumerOverlay, clean: false } }), "provenance.consumer_invalid"],
+    ["template object", changed((value) => { value.effectiveTemplateOverlay = null; }), "provenance.template_invalid"],
+    ["template unknown field", changed((value) => { value.effectiveTemplateOverlay.unexpected = true; }), "provenance.template_invalid"],
+    ["template image digest", changed((value) => { value.effectiveTemplateOverlay.imageDigest = `sha256:${"0".repeat(64)}`; }), "provenance.template_invalid"],
+    ["effective tree digest", changed((value) => { value.effectiveTemplateOverlay.effectiveTreeDigest = "bad"; }), "provenance.template_invalid"],
+    ["observed tags type", changed((value) => { value.effectiveTemplateOverlay.observedTags = null; }), "provenance.template_invalid"],
+    ["observed tag value", changed((value) => { value.effectiveTemplateOverlay.observedTags = [""]; }), "provenance.template_invalid"],
+    ["template files", changed((value) => { value.effectiveTemplateOverlay.templateFiles = []; }), "provenance.template_invalid"],
+    ["effective files", changed((value) => { value.effectiveTemplateOverlay.effectiveFiles = []; }), "provenance.template_invalid"],
+    ["overlay rules type", changed((value) => { value.effectiveTemplateOverlay.overlayRules = null; }), "provenance.template_invalid"],
+    ["overlay rules empty", changed((value) => { value.effectiveTemplateOverlay.overlayRules = []; }), "provenance.template_invalid"],
+    ["overlay rule object", changed((value) => { value.effectiveTemplateOverlay.overlayRules[0] = null; }), "provenance.template_invalid"],
+    ["overlay rule unknown field", changed((value) => { value.effectiveTemplateOverlay.overlayRules[0].unexpected = true; }), "provenance.template_invalid"],
+    ["overlay rule order", changed((value) => { value.effectiveTemplateOverlay.overlayRules[0].order = 2; }), "provenance.template_invalid"],
+    ["overlay rule operation", changed((value) => { value.effectiveTemplateOverlay.overlayRules[0].operation = "copy"; }), "provenance.template_invalid"],
+    ["overlay rule path", changed((value) => { value.effectiveTemplateOverlay.overlayRules[0].path = ""; }), "provenance.template_invalid"],
+    ["manifest zero digest", { ...manifest, manifestDigest: `sha256:${"0".repeat(64)}` }, "provenance.digest_invalid"],
+    ["digest", { ...manifest, manifestDigest: "sha256:bad" }, "provenance.digest_invalid"],
+  ];
+  for (const [name, input, code] of cases) {
+    const result = validateProvenanceManifestV1(input);
+    assert.equal(result.ok, false, name);
+    assert.ok(result.issues.some((entry) => entry.code === code), name);
+  }
+});
+
+test("S11.4 rejects the former placeholder even though its self-digest matches", () => {
+  const oldPlaceholder = { consumerOverlay: { clean: true, commit: "0000000000000000000000000000000000000000", files: [], repository: "Portfolio" }, deliveryMechanics: { commit: "0000000000000000000000000000000000000000", files: [], repository: "SubZeroDev.Platform.UI.LandingPage" }, effectiveTemplateOverlay: { effectiveFiles: [], effectiveTreeDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000", imageDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000", observedTags: [], overlayRules: [], templateFiles: [] }, manifestDigest: "sha256:866930899eec0a539255b5dfb9d65f8a0ef440aa88344ae886b50825345ca63a", version: 1 };
+  const placeholder = validateProvenanceManifestV1(oldPlaceholder);
+  assert.equal(placeholder.ok, false);
+  assert.deepEqual(placeholder.issues.map((entry) => entry.code), [
+    "provenance.delivery_invalid",
+    "provenance.consumer_invalid",
+    "provenance.template_invalid",
+  ]);
 });
 
 test("S11.4 a normal build succeeds with evidence-network access poisoned", async (t) => {
