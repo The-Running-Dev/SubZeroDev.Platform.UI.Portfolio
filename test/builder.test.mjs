@@ -30,7 +30,7 @@ async function fixture({ route = "/work", invalid = false, badConfig = false, ki
   const sourceModel = kind === "cv" ? cvModel : model;
   const config = `import { definePortfolioSite, defineSource } from ${JSON.stringify(builderUrl)};
 const order = globalThis.__szdOrder;
-const source = defineSource({ id: "portfolio", timing: "build", provider: { resolve: async () => { order?.push("provider"); return { value: ${JSON.stringify(sourceModel)}, metadata: [] }; } }, validateRaw: (value) => { order?.push("raw"); return ${invalid ? "{ ok: false, issues: [] }" : "{ ok: true, value }"}; }, project: (value) => { order?.push("project"); return value; }, viewModel: { validate: (value) => { order?.push("view"); return value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] }; } } });
+const source = defineSource({ id: "portfolio", timing: "build", provider: { kind: "fixture", publicDescriptor: [], resolve: async () => { order?.push("provider"); return { value: ${JSON.stringify(sourceModel)}, metadata: [] }; } }, validateRaw: (value) => { order?.push("raw"); return ${invalid ? "{ ok: false, issues: [] }" : "{ ok: true, value }"}; }, project: (value) => { order?.push("project"); return value; }, viewModel: { kind: ${JSON.stringify(kind)}, validate: (value) => { order?.push("view"); return value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] }; } } });
 export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: ${JSON.stringify(route)}, metadata: { title: "Route" }, presentation: { kind: ${JSON.stringify(kind)}, modelSourceId: "portfolio" }, requiredSourceIds: [${badConfig ? '"missing"' : '"portfolio"'}] }], sources: [source], styles: [], navigation: [], publicAssets: [] });`;
   await writeFile(join(dir, "site.mjs"), config);
   return { dir, order };
@@ -75,6 +75,23 @@ test("S13.6 builds a CV-kind route through the same document compiler", async (t
   await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
   assert.match(await readFile(join(dir, "out/work/index.html"), "utf8"), /szd-portfolio-cv/);
   delete globalThis.__szdOrder;
+});
+
+test("S12.1 builds a browser-gated unresolved boundary with only validated bootstrap data", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-browser-build-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  const config = `import { definePortfolioSite, defineSource } from ${JSON.stringify(builderUrl)};
+const contract = { kind: "portfolio", validate: (value) => value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] } };
+const build = defineSource({ id: "built", timing: "build", provider: { kind: "fixture", publicDescriptor: [], resolve: async () => ({ value: ${JSON.stringify(model)}, metadata: [] }) }, validateRaw: (value) => ({ ok: true, value }), project: (value) => value, viewModel: contract });
+const browser = defineSource({ id: "fresh", timing: "browser", provider: { kind: "fixture", publicDescriptor: [], resolve: async () => ({ value: { secret: "raw" }, metadata: [] }) }, validateRaw: (value) => ({ ok: true, value }), project: () => (${JSON.stringify(model)}), viewModel: contract });
+export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: "/work", metadata: { title: "Route" }, presentation: { kind: "portfolio", modelSourceId: "fresh" }, requiredSourceIds: ["built", "fresh"] }], sources: [build, browser], styles: [], navigation: [], publicAssets: [] });`;
+  await writeFile(join(dir, "site.mjs"), config);
+  await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  const html = await readFile(join(dir, "out/work/index.html"), "utf8");
+  assert.match(html, /data-szd-portfolio-state="unresolved"/);
+  assert.doesNotMatch(html, /secret|raw/);
+  const bootstrap = JSON.parse(html.match(/<script type="application\/json" id="szd-portfolio-bootstrap">([^<]+)<\/script>/)[1]);
+  assert.deepEqual(bootstrap.browserSourceIds, ["fresh"]);
+  assert.deepEqual(bootstrap.buildModels.map((entry) => entry.sourceId), ["built"]);
 });
 
 test("S11.3 stops source processing at the first failed validation boundary", async (t) => {

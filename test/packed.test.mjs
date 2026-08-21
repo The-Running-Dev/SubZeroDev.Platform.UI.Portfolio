@@ -9,7 +9,7 @@ import test from "node:test";
 const execFile = promisify(execFileCallback);
 const root = new URL("..", import.meta.url).pathname;
 
-test("S10.1 and S10.6 packed root installs, SSR-renders, and Vite-bundles with React 18 and 19", async (t) => {
+test("S10.1, S10.6, and S12.6 packed entries install, SSR-render, and Vite-bundle with React 18 and 19", async (t) => {
   const { stdout } = await execFile("npm", ["pack", "--json"], { cwd: root });
   const [{ filename }] = JSON.parse(stdout);
   const tarball = join(root, filename);
@@ -41,7 +41,10 @@ test("S10.1 and S10.6 packed root installs, SSR-renders, and Vite-bundles with R
       types: "./src/builder.d.ts",
       default: "./src/builder.js",
     });
-    assert.equal(consumerManifest.exports["./browser"], undefined);
+    assert.deepEqual(consumerManifest.exports["./browser"], {
+      types: "./src/browser.d.ts",
+      default: "./src/browser.js",
+    });
     assert.equal(consumerManifest.exports["./data-json"], undefined);
   }
 });

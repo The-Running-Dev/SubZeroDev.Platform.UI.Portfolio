@@ -12,6 +12,10 @@
     "./builder": {
       "types": "./src/builder.d.ts",
       "default": "./src/builder.js"
+    },
+    "./browser": {
+      "types": "./src/browser.d.ts",
+      "default": "./src/browser.js"
     }
   },
   "bin": {

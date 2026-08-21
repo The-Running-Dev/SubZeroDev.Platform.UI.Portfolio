@@ -16,7 +16,7 @@ const model = { version: 1, header: { title: "Built" }, statistics: [], categori
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-cli-"));
   const config = `import { definePortfolioSite, defineSource } from ${JSON.stringify(builderUrl)};
-const source = defineSource({ id: "portfolio", timing: "build", provider: { resolve: async () => ({ value: ${JSON.stringify(model)}, metadata: [] }) }, validateRaw: (value) => ({ ok: true, value }), project: (value) => value, viewModel: { validate: (value) => value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] } } });
+const source = defineSource({ id: "portfolio", timing: "build", provider: { kind: "fixture", publicDescriptor: [], resolve: async () => ({ value: ${JSON.stringify(model)}, metadata: [] }) }, validateRaw: (value) => ({ ok: true, value }), project: (value) => value, viewModel: { kind: "portfolio", validate: (value) => value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] } } });
 export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: "/work", metadata: { title: "Route" }, presentation: { kind: "portfolio", modelSourceId: "portfolio" }, requiredSourceIds: ["portfolio"] }], sources: [source], styles: [], navigation: [], publicAssets: [] });`;
   await writeFile(join(dir, "site.mjs"), config);
   return dir;
