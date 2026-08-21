@@ -1,1 +1,3 @@
 design/state/
+node_modules/
+*.tgz

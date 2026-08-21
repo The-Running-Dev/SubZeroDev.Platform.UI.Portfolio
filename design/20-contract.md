@@ -136,41 +136,36 @@ does not thereby acquire later slices' declarations, integrations, or behavior.
 
 ## Types
 
-All declarations below will live under "src/". String constraints described
-after the scaffold are enforced by validators; TypeScript string annotations
-alone do not establish them.
+S10 materializes its shared validation and link declarations, Portfolio model,
+validator, selectors, renderer, and validation error in
+[`src/index.d.ts`](../src/index.d.ts) and [`src/index.js`](../src/index.js).
+Those files are canonical for their declarations; the remaining scaffold below
+imports their types where later-slice declarations require them. String
+constraints are enforced by validators; TypeScript string annotations alone do
+not establish them.
 
 ~~~ts
 import type { ReactElement, ReactNode } from "react";
+import type {
+  IconRenderer,
+  IssuePath,
+  LinkCapabilityV1,
+  PortfolioViewModelV1,
+  ProjectCardViewModelV1,
+  ValidationError,
+  ValidationIssue,
+  ValidationResult,
+  Validator,
+} from "../src/index.js";
 
-export type IssuePath = readonly (string | number)[];
 export type SourceId = string;
 export type RoutePath = string;
 export type AssetPath = string;
 export type RichTextSlotId = string;
 
-export interface ValidationIssue {
-  readonly code: string;
-  readonly path: IssuePath;
-  readonly message: string;
-}
-
-export type ValidationResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly issues: readonly ValidationIssue[] };
-
-export type Validator<T> = (input: unknown) => ValidationResult<T>;
-
 export interface CancellationSignal {
   readonly cancelled: boolean;
   readonly onCancel: (listener: () => void) => () => void;
-}
-
-export interface LinkCapabilityV1 {
-  readonly label: string;
-  readonly href?: string;
-  readonly accessibleLabel?: string;
-  readonly target?: "same-context" | "new-context";
 }
 
 export type NavigationItemV1 =
@@ -248,43 +243,6 @@ export interface CVEducationV1 {
   readonly period?: string;
 }
 
-export interface ProjectCardViewModelV1 {
-  readonly id: string;
-  readonly title: string;
-  readonly summary: string;
-  readonly categoryIds: readonly string[];
-  readonly tags: readonly string[];
-  readonly technologies: readonly string[];
-  readonly period?: {
-    readonly start: string;
-    readonly end?: string;
-    readonly ongoing: boolean;
-  };
-  readonly links: readonly LinkCapabilityV1[];
-}
-
-export interface PortfolioViewModelV1 {
-  readonly version: 1;
-  readonly header: { readonly title: string; readonly summary?: string };
-  readonly statistics: readonly {
-    readonly id: string;
-    readonly label: string;
-    readonly value: string;
-  }[];
-  readonly categories: readonly {
-    readonly id: string;
-    readonly label: string;
-    readonly count?: number;
-  }[];
-  readonly technologies: readonly {
-    readonly id: string;
-    readonly label: string;
-    readonly iconKey?: string;
-    readonly link?: LinkCapabilityV1;
-  }[];
-  readonly recentProjects: readonly ProjectCardViewModelV1[];
-}
-
 export interface ProjectsViewModelV1 {
   readonly version: 1;
   readonly heading: string;
@@ -347,10 +305,6 @@ export interface RichTextSlot {
   readonly content: ReactNode;
 }
 
-export interface IconRenderer {
-  (iconKey: string): ReactNode;
-}
-
 export interface SiteChromeProps {
   readonly model: SiteChromeViewModelV1;
   readonly renderIcon?: IconRenderer;
@@ -358,10 +312,6 @@ export interface SiteChromeProps {
 export interface CVProps {
   readonly model: CVViewModelV1;
   readonly richTextSlots?: readonly RichTextSlot[];
-}
-export interface PortfolioProps {
-  readonly model: PortfolioViewModelV1;
-  readonly renderIcon?: IconRenderer;
 }
 export interface ProjectsProps {
   readonly model: ProjectsViewModelV1;
@@ -383,7 +333,6 @@ export interface ReaderModeControlProps {
 
 export function SiteChrome(props: SiteChromeProps): ReactElement;
 export function CV(props: CVProps): ReactElement;
-export function Portfolio(props: PortfolioProps): ReactElement;
 export function Projects(props: ProjectsProps): ReactElement;
 export function VersionDisplay(props: VersionDisplayProps): ReactElement;
 export function TextSizeControl(props: TextSizeControlProps): ReactElement;
@@ -391,7 +340,6 @@ export function ReaderModeControl(props: ReaderModeControlProps): ReactElement;
 
 export function validateSiteChromeViewModelV1(input: unknown): ValidationResult<SiteChromeViewModelV1>;
 export function validateCVViewModelV1(input: unknown): ValidationResult<CVViewModelV1>;
-export function validatePortfolioViewModelV1(input: unknown): ValidationResult<PortfolioViewModelV1>;
 export function validateProjectsViewModelV1(input: unknown): ValidationResult<ProjectsViewModelV1>;
 export function validateVersionDisplayViewModelV1(input: unknown): ValidationResult<VersionDisplayViewModelV1>;
 export function validateTextSizeViewModelV1(input: unknown): ValidationResult<TextSizeViewModelV1>;
@@ -419,26 +367,6 @@ export const projectsViewModelV1Contract: ViewModelContract<ProjectsViewModelV1>
 export const versionDisplayViewModelV1Contract: ViewModelContract<VersionDisplayViewModelV1>;
 export const textSizeViewModelV1Contract: ViewModelContract<TextSizeViewModelV1>;
 export const readerModeViewModelV1Contract: ViewModelContract<ReaderModeViewModelV1>;
-
-export type ValidationErrorCode = "view.validation_failed";
-
-export interface ValidationErrorOptions {
-  readonly modelKind: ViewModelContract<PortfolioPackageViewModelV1>["kind"];
-  readonly issues: readonly ValidationIssue[];
-  readonly cause?: unknown;
-}
-
-export class ValidationError extends Error {
-  readonly code: ValidationErrorCode;
-  readonly modelKind: ValidationErrorOptions["modelKind"];
-  readonly issues: readonly ValidationIssue[];
-  readonly cause?: unknown;
-  constructor(
-    code: ValidationErrorCode,
-    message: string,
-    options: ValidationErrorOptions,
-  );
-}
 
 export type ResolutionErrorCode =
   | "consumer.validation_failed"
@@ -553,12 +481,6 @@ export function parseCVPeriod(value: string): ValidationResult<{
   readonly ongoing: boolean;
 }>;
 export function sortCVRoles(roles: readonly CVRoleV1[]): readonly CVRoleV1[];
-export function selectLinkDestination(
-  link: LinkCapabilityV1,
-): string | undefined;
-export function flattenPortfolioTechnologies(
-  model: PortfolioViewModelV1,
-): readonly string[];
 export function filterProjects(
   model: ProjectsViewModelV1,
   query: ProjectsQueryV1,

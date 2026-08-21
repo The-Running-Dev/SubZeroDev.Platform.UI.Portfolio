@@ -1,0 +1,59 @@
+.szd-portfolio-overview {
+  --szd-portfolio-space: 1rem;
+  display: grid;
+  gap: var(--szd-portfolio-space);
+}
+
+.szd-portfolio-header,
+.szd-portfolio-projects {
+  display: grid;
+  gap: calc(var(--szd-portfolio-space) / 2);
+}
+
+.szd-portfolio-title,
+.szd-portfolio-project-title,
+.szd-portfolio-summary,
+.szd-portfolio-project-summary {
+  margin: 0;
+}
+
+.szd-portfolio-statistics,
+.szd-portfolio-categories,
+.szd-portfolio-technologies,
+.szd-portfolio-project-technologies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--szd-portfolio-space) / 2);
+  margin: 0;
+  padding: 0;
+}
+
+.szd-portfolio-statistic,
+.szd-portfolio-category,
+.szd-portfolio-technology,
+.szd-portfolio-project-technology {
+  list-style: none;
+}
+
+.szd-portfolio-statistic-value {
+  margin: 0;
+}
+
+.szd-portfolio-link {
+  display: inline-flex;
+  gap: calc(var(--szd-portfolio-space) / 4);
+}
+
+.szd-portfolio-icon {
+  display: inline-flex;
+}
+
+.szd-portfolio-project {
+  display: grid;
+  gap: calc(var(--szd-portfolio-space) / 2);
+}
+
+.szd-portfolio-project-links {
+  display: flex;
+  gap: calc(var(--szd-portfolio-space) / 2);
+}

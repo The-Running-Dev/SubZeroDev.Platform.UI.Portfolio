@@ -1,0 +1,33 @@
+{
+  "name": "subzerodev-platform-ui-portfolio",
+  "version": "0.0.0-development",
+  "description": "Validated, SSR-safe Portfolio overview rendering.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./styles.css": "./src/styles.css"
+  },
+  "files": [
+    "src"
+  ],
+  "sideEffects": [
+    "./src/styles.css"
+  ],
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/index.js && node --test test/*.test.mjs && npm run typecheck",
+    "pack:check": "npm pack --dry-run",
+    "typecheck": "npx --yes --package typescript@5.9.3 tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 test/types.ts"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}
