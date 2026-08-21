@@ -26,11 +26,9 @@ function immutableCommit(value) { return typeof value === "string" && /^[0-9a-f]
 function relativeManifestPath(value) { return typeof value === "string" && value.length > 0 && !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."); }
 function fileDigestList(value) {
   if (!Array.isArray(value) || value.length === 0) return false;
-  const paths = new Set();
   let previous;
   for (const entry of value) {
-    if (!record(entry) || !exactKeys(entry, ["path", "digest"]) || !relativeManifestPath(entry.path) || !immutableDigest(entry.digest) || paths.has(entry.path) || (previous !== undefined && previous >= entry.path)) return false;
-    paths.add(entry.path);
+    if (!record(entry) || !exactKeys(entry, ["path", "digest"]) || !relativeManifestPath(entry.path) || !immutableDigest(entry.digest) || (previous !== undefined && previous >= entry.path)) return false;
     previous = entry.path;
   }
   return true;
