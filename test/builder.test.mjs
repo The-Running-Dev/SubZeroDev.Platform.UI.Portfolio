@@ -30,6 +30,19 @@ test("S11.1 rejects invalid configuration before provider I/O or output mutation
   delete globalThis.__szdOrder;
 });
 
+test("S11.1 accepts no omitted or inferred build path", async (t) => {
+  const { dir } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  for (const paths of [
+    { configPath: "site.mjs", outDir: "out" },
+    { rootDir: dir, outDir: "out" },
+    { rootDir: dir, configPath: "site.mjs" },
+    {},
+  ]) {
+    await assert.rejects(buildPortfolioSite(paths), (error) => error instanceof BuilderError && error.code === "config.invalid" && error.message === "Every build path is required");
+  }
+  await assert.rejects(readFile(join(dir, "out")));
+});
+
 test("S11.2, S11.3, and S11.7 build only declared routes in deterministic declaration order", async (t) => {
   const { dir, order } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true })); globalThis.__szdOrder = order;
   const first = await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
@@ -55,6 +68,15 @@ test("S11.4 validates the package-bundled provenance manifest offline", async ()
   assert.equal(validateProvenanceManifestV1({ ...manifest, manifestDigest: "sha256:bad" }).ok, false);
 });
 
+test("S11.4 a normal build succeeds with evidence-network access poisoned", async (t) => {
+  const { dir } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("evidence network is poisoned"); };
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const result = await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  assert.match(result.record.artifactDigest, /^sha256:/);
+});
+
 test("S11.5 and S11.6 preserve the previous artifact on failure and block leases and recovery", async (t) => {
   const { dir } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
   await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }); const before = await readFile(join(dir, "out/.szd-portfolio-artifact.json"), "utf8");
@@ -63,4 +85,15 @@ test("S11.5 and S11.6 preserve the previous artifact on failure and block leases
   assert.equal(await readFile(join(dir, "out/.szd-portfolio-artifact.json"), "utf8"), before);
   await writeFile(join(dir, "out.lease.json"), "held"); await assert.rejects(buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }), (error) => error.code === "lease.unavailable"); await rm(join(dir, "out.lease.json"));
   await writeFile(join(dir, "out.recovery.json"), "{}"); await assert.rejects(buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }), (error) => error.code === "recovery.required");
+});
+
+test("S11.5 injected write-boundary failure leaves the previous artifact byte-for-byte unchanged", async (t) => {
+  const { dir } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  const before = await readFile(join(dir, "out/.szd-portfolio-artifact.json"), "utf8");
+  process.env.SZD_PORTFOLIO_FAIL_AT = "write";
+  await assert.rejects(buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }), (error) => error.code === "promotion.failed");
+  delete process.env.SZD_PORTFOLIO_FAIL_AT;
+  assert.equal(await readFile(join(dir, "out/.szd-portfolio-artifact.json"), "utf8"), before);
+  await assert.rejects(readFile(join(dir, "out.recovery.json")));
 });
