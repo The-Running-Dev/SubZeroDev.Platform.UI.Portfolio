@@ -96,10 +96,12 @@ does not thereby acquire later slices' declarations, integrations, or behavior.
 - **P23** Every normalized route path is unique, contained by its base path,
   and mapped to one static document by the single document compiler. Planner
   fixtures enforce this.
-- **P24** Build, check, and dev accept only a valid immutable three-role
-  provenance manifest whose digest matches its canonical contents and fixture
-  bindings. Normal operations never refresh evidence. Manifest fixtures and
-  network-poisoned tests enforce this.
+- **P24** Build, check, and dev validate exactly the immutable three-role
+  provenance manifest shipped with the executing package version. Its digest
+  must match its canonical contents and fixture bindings; configuration,
+  command arguments, working directory, and environment cannot substitute a
+  different manifest. Normal operations never refresh evidence. Packed-manifest
+  fixtures and network-poisoned tests enforce this.
 - **P25** Build and merge write and verify a complete sibling staging tree
   before the authoritative target changes. Fault-injection tests enforce this
   at every write and promotion boundary.
@@ -610,6 +612,8 @@ a JavaScript import.
 definePortfolioSite validates eagerly and returns the same object reference. It
 does not load sources, read the filesystem, or normalize paths against a
 working directory. The Node loader performs those invocation-scoped checks.
+Extraction provenance is not a consumer configuration capability; P24 assigns
+manifest selection to the executing package version.
 
 ## Persisted schemas
 
@@ -717,13 +721,16 @@ array order, and no insignificant whitespace. Digests carry an algorithm prefix
 and use the one algorithm named by the canonicalization module; changing it is
 a record-version change.
 
-The provenance manifest is tracked and immutable: refresh creates a new
-canonical record and identity, never edits an old artifact. Bootstrap and
-artifact records have no in-place migration; an incompatible version requires
-a rebuild. Lease and recovery records are temporary operational state, not
-migrated or guessed through. A stale lease may be cleared only after its owner
-is proven absent. The user must adjudicate the trees named by a recovery record
-and remove that record deliberately.
+The provenance manifest is a tracked package resource bundled with the
+"./builder" implementation. The implementation resolves it from its own
+installed package, never from the process working directory or a consumer root.
+Refresh creates a new canonical record and identity for a later package build;
+it never edits an installed artifact. Bootstrap and artifact records have no
+in-place migration; an incompatible version requires a rebuild. Lease and
+recovery records are temporary operational state, not migrated or guessed
+through. A stale lease may be cleared only after its owner is proven absent.
+The user must adjudicate the trees named by a recovery record and remove that
+record deliberately.
 
 ## Public surface
 
@@ -905,7 +912,9 @@ becoming configuration or deployment policy. Build and preview promote an
 artifact; check uses an isolated temporary target and never replaces outDir.
 Preview completes that ordinary build before binding a socket. Dev binds only
 after configuration and provenance validation and initial build-source
-resolution succeed.
+resolution succeed. There is no provenance-manifest parameter: under P24 the
+executing package version selects its bundled manifest, and consumer input
+cannot override it.
 
 ### Browser API
 
@@ -1059,14 +1068,14 @@ result and artifact digest when one exists. Failure writes ordered safe
 diagnostics to stderr and exits non-zero. Help or an unknown invocation writes
 usage without loading configuration.
 
-Build reads configuration, manifest, declared assets, styles, and build
-sources; it writes only staging, lease/recovery state, and "--out-dir". Check
-reads the same inputs, writes only temporary state, and outputs the full gate
-list including "not-run". Dev reads the same inputs plus watched declarations,
-writes only its staging tree, and serves the latest complete generation.
-Preview performs build then serves its promoted artifact. Merge reads the
-artifact and target, writes sibling staging and lease/recovery state, and
-promotes only after protected-subtree revalidation.
+Build reads configuration, the package-owned manifest selected by P24, declared
+assets, styles, and build sources; it writes only staging, lease/recovery state,
+and "--out-dir". Check reads the same inputs, writes only temporary state, and
+outputs the full gate list including "not-run". Dev reads the same inputs plus
+watched declarations, writes only its staging tree, and serves the latest
+complete generation. Preview performs build then serves its promoted artifact.
+Merge reads the artifact and target, writes sibling staging and lease/recovery
+state, and promotes only after protected-subtree revalidation.
 
 No command modifies a source repository, configuration, provenance manifest,
 consumer content, registry, hosted site, or deployment setting. No command

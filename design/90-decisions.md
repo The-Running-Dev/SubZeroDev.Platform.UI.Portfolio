@@ -548,6 +548,32 @@ not satisfy the contracted selector criterion and invites duplicate behavior.
 Reversibility: cheap before publication and breaking afterward because the
 function name and signature are part of the root export.
 
+### 2026-08-21 — Builder provenance is selected by the package version
+
+Context: S11 requires every build to validate the recorded extraction
+provenance, but neither the public configuration nor the explicit command
+arguments identify a manifest. Allowing implementation to invent a lookup rule
+would make artifact identity depend on uncontracted process state.
+
+Chosen: each installed builder package carries one tracked three-role manifest
+and resolves it relative to its own implementation. The executing package
+version selects that evidence; consumer configuration, command arguments, the
+working directory, the consumer root, and environment variables cannot replace
+it. Normal operations validate the bundled record offline, while deliberate
+maintainer capture produces a new record for a later package build.
+
+Rejected: **add a manifest path to consumer configuration** — it assigns the
+package's implementation provenance to the consumer and lets equal package and
+configuration versions select different derivation evidence. **add a required
+CLI argument** — it creates the same substitution seam and expands every
+provenance-validating command. **discover a path from the working directory or
+consumer root** — invocation location becomes hidden policy and a packed
+consumer can resolve different evidence from the same package.
+
+Reversibility: moderate. A future consumer-selectable provenance input would
+add public configuration or command surface and would require artifacts to
+distinguish package evidence from caller-supplied evidence.
+
 ## Open
 
 None.
