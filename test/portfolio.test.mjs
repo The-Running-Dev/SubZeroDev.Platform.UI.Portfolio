@@ -6,10 +6,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   Portfolio,
+  SiteChrome,
+  CV,
+  VersionDisplay,
   ValidationError,
   flattenPortfolioTechnologies,
   selectLinkDestination,
   validatePortfolioViewModelV1,
+  validateSiteChromeViewModelV1,
+  validateCVViewModelV1,
+  validateVersionDisplayViewModelV1,
 } from "../src/index.js";
 
 const minimal = () => ({
@@ -160,4 +166,21 @@ test("S10.6 imports and server-renders with browser and optional-integration glo
       }
     }
   }
+});
+
+test("S13.1-S13.5 validate and safely render non-Projects presentation models", () => {
+  const chrome = { version: 1, identity: { name: "<Name>", iconKey: "star" }, primaryNavigation: [{ kind: "link", id: "home", link: { label: "Home" } }], secondaryNavigation: [], footer: { text: "Footer", links: [] } };
+  const cv = { version: 1, header: { name: "Name", contact: [] }, sections: [{ kind: "summary", id: "summary", heading: "Summary", body: { kind: "text", value: "<script>" } }, { kind: "roles", id: "roles", heading: "Roles", roles: [{ id: "role", title: "Engineer", organization: "Org", period: { start: "2020", ongoing: true }, achievements: [], technologies: [] }] }] };
+  const version = { version: 1, text: "v1", prefix: "Version", link: { label: "Release" } };
+  for (const [validator, value] of [[validateSiteChromeViewModelV1, chrome], [validateCVViewModelV1, cv], [validateVersionDisplayViewModelV1, version]]) assert.equal(validator(value).ok, true);
+  assert.equal(validateSiteChromeViewModelV1({ ...chrome, unexpected: true }).ok, false);
+  assert.equal(validateCVViewModelV1({ ...cv, sections: [...cv.sections, { ...cv.sections[0], id: "summary" }] }).ok, false);
+  assert.equal(validateCVViewModelV1({ ...cv, sections: [{ ...cv.sections[1], roles: [{ ...cv.sections[1].roles[0], period: { start: "2020", end: "2021", ongoing: true } }] }] }).ok, false);
+  assert.equal(validateCVViewModelV1({ ...cv, sections: [{ kind: "projects", id: "projects", heading: "Projects" }] }).ok, false);
+  assert.equal(validateCVViewModelV1({ ...cv, sections: [{ kind: "education", id: "education", heading: "Education", items: [{}] }] }).ok, false);
+  assert.equal(validateCVViewModelV1({ ...cv, sections: [{ kind: "achievements", id: "achievements", heading: "Achievements" }] }).ok, false);
+  assert.equal(validateVersionDisplayViewModelV1({ ...version, link: { label: "bad", href: "javascript:alert(1)" } }).ok, false);
+  const markup = renderToStaticMarkup(React.createElement(React.Fragment, null, React.createElement(SiteChrome, { model: chrome, renderIcon: () => React.createElement("svg", null) }), React.createElement(CV, { model: cv, richTextSlots: [{ id: "slot", content: React.createElement("strong", null, "trusted") }] }), React.createElement(VersionDisplay, { model: version })));
+  assert.match(markup, /&lt;script&gt;/); assert.doesNotMatch(markup, /href="\/(?:projects|cv|docs)/); assert.doesNotMatch(markup, /id="/);
+  assert.match(markup, /aria-hidden="true"/);
 });

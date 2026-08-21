@@ -57,3 +57,20 @@
   display: flex;
   gap: calc(var(--szd-portfolio-space) / 2);
 }
+
+.szd-portfolio-site-chrome,
+.szd-portfolio-cv,
+.szd-portfolio-cv-section,
+.szd-portfolio-cv-role {
+  display: grid;
+  gap: calc(var(--szd-portfolio-space) / 2);
+}
+
+.szd-portfolio-primary-navigation,
+.szd-portfolio-secondary-navigation,
+.szd-portfolio-footer,
+.szd-portfolio-navigation-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--szd-portfolio-space) / 2);
+}
