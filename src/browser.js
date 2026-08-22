@@ -185,8 +185,8 @@ function sanitizeProjectsQuery(model, fallback, query) {
 function serializeProjectsQuery(query) {
   const params = new URLSearchParams();
   if (query.search !== "") params.set("search", query.search);
-  if (query.categoryIds.length > 0) params.set("categoryIds", query.categoryIds.join(","));
-  if (query.tags.length > 0) params.set("tags", query.tags.join(","));
+  for (const categoryId of query.categoryIds) params.append("categoryIds", categoryId);
+  for (const tag of query.tags) params.append("tags", tag);
   if (query.sortChoiceId !== "") params.set("sort", query.sortChoiceId);
   return params.toString();
 }
@@ -196,8 +196,8 @@ function parseProjectsQuery(model, fallback, raw) {
   try { params = new URLSearchParams(raw ?? ""); } catch { return fallback; }
   return sanitizeProjectsQuery(model, fallback, {
     search: params.get("search") ?? "",
-    categoryIds: (params.get("categoryIds") ?? "").split(",").filter(Boolean),
-    tags: (params.get("tags") ?? "").split(",").filter(Boolean),
+    categoryIds: params.getAll("categoryIds"),
+    tags: params.getAll("tags"),
     sortChoiceId: params.get("sort") ?? fallback.sortChoiceId,
   });
 }

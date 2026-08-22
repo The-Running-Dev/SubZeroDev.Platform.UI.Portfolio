@@ -132,7 +132,7 @@ test("S14.4 createReaderModeController toggles a package-prefixed DOM attribute 
 });
 
 test("S14.4 createProjectsUrlController parses, sanitizes, and serializes through the URL port", () => {
-  const port = { value: "search=react&categoryIds=web,unknown&sort=bogus", reads: 0, replaced: [], read() { this.reads += 1; return this.value; }, replace(query) { this.replaced.push(query); this.value = query; } };
+  const port = { value: "search=react&categoryIds=web&categoryIds=unknown&sort=bogus", reads: 0, replaced: [], read() { this.reads += 1; return this.value; }, replace(query) { this.replaced.push(query); this.value = query; } };
   const controller = createProjectsUrlController(projectsModel, defaultQuery, port);
   assert.deepEqual(controller.get(), { search: "react", categoryIds: ["web"], tags: [], sortChoiceId: "newest" });
 
@@ -145,6 +145,16 @@ test("S14.4 createProjectsUrlController parses, sanitizes, and serializes throug
   assert.match(port.replaced[0], /search=next/);
   assert.match(port.replaced[0], /categoryIds=web/);
   assert.doesNotMatch(port.replaced[0], /unknown/);
+});
+
+test("S14.4 createProjectsUrlController round-trips a tag containing a comma without splitting it", () => {
+  const port = { value: "", replaced: [], read() { return this.value; }, replace(query) { this.replaced.push(query); this.value = query; } };
+  const controller = createProjectsUrlController(projectsModel, defaultQuery, port);
+  controller.set({ ...defaultQuery, tags: ["cli", "machine learning, AI"] });
+  assert.deepEqual(controller.get().tags, ["cli", "machine learning, AI"]);
+
+  const reread = createProjectsUrlController(projectsModel, defaultQuery, port);
+  assert.deepEqual(reread.get().tags, ["cli", "machine learning, AI"], "a tag containing a comma must survive a URL round trip intact");
 });
 
 test("S14.4 createProjectsUrlController falls back to the declared first-render default when the URL port throws", () => {
