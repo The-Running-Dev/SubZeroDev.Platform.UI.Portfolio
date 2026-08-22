@@ -168,6 +168,8 @@ export function createReaderModeController(model, key, storage, dom) {
   );
 }
 
+function isQueryRecord(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
+
 function sanitizeProjectsQuery(model, fallback, query) {
   const categoryIds = new Set(model.categories.map((category) => category.id));
   const sortChoiceIds = new Set(model.sortChoices.map((choice) => choice.id));
@@ -208,7 +210,7 @@ export function createProjectsUrlController(model, initial, port) {
     startingValue,
     () => {},
     {
-      sanitize: (value) => sanitizeProjectsQuery(model, initial, value),
+      sanitize: (value) => (isQueryRecord(value) ? sanitizeProjectsQuery(model, initial, value) : undefined),
       write: (value) => { try { port.replace(serializeProjectsQuery(value)); } catch {} },
     },
   );

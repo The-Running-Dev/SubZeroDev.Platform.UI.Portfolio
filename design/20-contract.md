@@ -790,8 +790,8 @@ validator contract, Portfolio selectors, the Portfolio renderer, and their
 error declarations. S12 materialises the root resolution, complete-set, and
 browser-bootstrap declarations it requires plus "./browser" limited to
 browser-source settlement, route hydration, refresh generations, and disposal.
-Preference storage, DOM preference application, and Projects URL state remain
-unmaterialised scaffolds.
+S14 materialises the preference storage, DOM preference application, and
+Projects URL state controllers behind that same "./browser" path.
 
 ### Builder API
 

@@ -154,3 +154,18 @@ test("S14.4 createProjectsUrlController falls back to the declared first-render 
   controller.set({ ...defaultQuery, search: "still works" });
   assert.equal(controller.get().search, "still works", "a throwing URL port must not block the in-memory preference");
 });
+
+test("S14.4 createProjectsUrlController rejects a non-object value instead of resetting the query", () => {
+  const port = { value: "search=react&categoryIds=web", replaced: [], read() { return this.value; }, replace(query) { this.replaced.push(query); this.value = query; } };
+  const controller = createProjectsUrlController(projectsModel, defaultQuery, port);
+  const before = controller.get();
+  assert.deepEqual(before, { search: "react", categoryIds: ["web"], tags: [], sortChoiceId: "newest" });
+
+  const notifications = [];
+  controller.subscribe(() => notifications.push(controller.get()));
+  for (const invalid of [null, undefined, "nope", 42, []]) controller.set(invalid);
+
+  assert.deepEqual(controller.get(), before, "an invalid value must not discard the visitor's filters");
+  assert.deepEqual(port.replaced, [], "an invalid value must not rewrite the URL");
+  assert.deepEqual(notifications, []);
+});

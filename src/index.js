@@ -203,30 +203,7 @@ export function validatePortfolioViewModelV1(input) {
     issues.push(issue("view.expected_array", ["recentProjects"], "An array is required."));
   } else {
     const ids = new Set();
-    input.recentProjects.forEach((project, index) => {
-      const path = ["recentProjects", index];
-      if (!isRecord(project)) {
-        issues.push(issue("view.expected_object", path, "A project object is required."));
-        return;
-      }
-      validateUniqueId(project.id, [...path, "id"], ids, issues);
-      validateRequiredString(project.title, [...path, "title"], issues);
-      validateRequiredString(project.summary, [...path, "summary"], issues);
-      if (validateStringArray(project.categoryIds, [...path, "categoryIds"], issues)) {
-        project.categoryIds.forEach((categoryId, categoryIndex) => {
-          if (isNonEmptyString(categoryId) && !categoryIds.has(categoryId)) {
-            issues.push(issue("view.unknown_category", [...path, "categoryIds", categoryIndex], "Project category must be declared."));
-          }
-        });
-      }
-      validateStringArray(project.tags, [...path, "tags"], issues);
-      validateStringArray(project.technologies, [...path, "technologies"], issues);
-      validateLinks(project.links, [...path, "links"], issues);
-      if (project.period !== undefined) {
-        validatePeriod(project.period, [...path, "period"], issues);
-      }
-      pushUnknownFields(project, new Set(["id", "title", "summary", "categoryIds", "tags", "technologies", "period", "links"]), path, issues);
-    });
+    input.recentProjects.forEach((project, index) => validateProjectCard(project, ["recentProjects", index], categoryIds, ids, issues));
   }
 
   pushUnknownFields(input, allowed, [], issues);
@@ -353,7 +330,7 @@ export function validateCVViewModelV1(input) {
 export function validateVersionDisplayViewModelV1(input) { return validationResult(input, "version display", (value, issues) => { if (value.version !== 1) issues.push(issue("view.unsupported_version", ["version"], "Version 1 is required.")); validateRequiredString(value.text, ["text"], issues); if (value.prefix !== undefined) validateRequiredString(value.prefix, ["prefix"], issues); if (value.link !== undefined) validateLink(value.link, ["link"], issues); pushUnknownFields(value, new Set(["version", "text", "prefix", "link"]), [], issues); }); }
 
 function validateProjectCard(value, path, categoryIds, ids, issues) {
-  if (!isRecord(value)) { issues.push(issue("view.expected_object", path, "A project card object is required.")); return; }
+  if (!isRecord(value)) { issues.push(issue("view.expected_object", path, "A project object is required.")); return; }
   validateUniqueId(value.id, [...path, "id"], ids, issues);
   validateRequiredString(value.title, [...path, "title"], issues);
   validateRequiredString(value.summary, [...path, "summary"], issues);
