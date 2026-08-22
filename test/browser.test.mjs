@@ -72,9 +72,10 @@ function spyStorage(initial = new Map()) {
     values: initial,
     reads: [],
     writes: [],
+    removes: [],
     read(key) { this.reads.push(key); return this.values.has(key) ? this.values.get(key) : null; },
     write(key, value) { this.writes.push([key, value]); this.values.set(key, value); },
-    remove(key) { this.values.delete(key); },
+    remove(key) { this.removes.push(key); this.values.delete(key); },
   };
 }
 function spyDom() {
@@ -91,6 +92,7 @@ test("S14.4 createTextSizeController recovers unknown saved choices to the decla
   const controller = createTextSizeController(textSizeModel, "text-size", storage, dom);
   assert.equal(controller.get(), "small");
   assert.equal(dom.attributes.get("data-szd-portfolio-text-size"), "sm");
+  assert.deepEqual(storage.removes, ["text-size"], "an unrecoverable saved choice must be cleared from storage, not left stale");
 
   const notifications = [];
   const unsubscribe = controller.subscribe(() => notifications.push(controller.get()));
@@ -110,12 +112,27 @@ test("S14.4 createTextSizeController recovers unknown saved choices to the decla
 });
 
 test("S14.4 createTextSizeController retains the default when the storage port throws", () => {
-  const storage = { read: () => { throw new Error("blocked"); }, write: () => { throw new Error("blocked"); }, remove: () => {} };
+  const storage = { read: () => { throw new Error("blocked"); }, write: () => { throw new Error("blocked"); }, remove: () => { throw new Error("blocked"); } };
   const dom = spyDom();
   const controller = createTextSizeController(textSizeModel, "text-size", storage, dom);
   assert.equal(controller.get(), "small");
   controller.set("large");
   assert.equal(controller.get(), "large", "a throwing storage write must not block the in-memory preference");
+});
+
+test("S14.4 createTextSizeController does not remove a saved choice that is still valid", () => {
+  const storage = spyStorage(new Map([["text-size", "large"]]));
+  const dom = spyDom();
+  const controller = createTextSizeController(textSizeModel, "text-size", storage, dom);
+  assert.equal(controller.get(), "large");
+  assert.deepEqual(storage.removes, []);
+});
+
+test("S14.4 createTextSizeController construction survives a throwing storage.remove while recovering an invalid choice", () => {
+  const storage = { read: () => "huge", write: () => {}, remove: () => { throw new Error("blocked"); } };
+  const dom = spyDom();
+  const controller = createTextSizeController(textSizeModel, "text-size", storage, dom);
+  assert.equal(controller.get(), "small", "a throwing storage.remove must not block recovery to the declared default");
 });
 
 test("S14.4 createReaderModeController toggles a package-prefixed DOM attribute and recovers invalid saved state", () => {
@@ -124,6 +141,7 @@ test("S14.4 createReaderModeController toggles a package-prefixed DOM attribute 
   const controller = createReaderModeController(readerModeModel, "reader-mode", storage, dom);
   assert.equal(controller.get(), false);
   assert.equal(dom.attributes.has("data-szd-portfolio-reader-mode"), false);
+  assert.deepEqual(storage.removes, ["reader-mode"], "an unrecoverable saved value must be cleared from storage, not left stale");
   controller.set(true);
   assert.equal(controller.get(), true);
   assert.equal(dom.attributes.get("data-szd-portfolio-reader-mode"), "true");

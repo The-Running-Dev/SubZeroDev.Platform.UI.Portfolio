@@ -198,6 +198,27 @@ test("S14.3 Projects rejects an invalid direct renderer boundary with the typed 
   );
 });
 
+test("S14.3 Projects rejects a malformed query with the typed error instead of throwing a raw TypeError", () => {
+  const model = completeProjects();
+  const invalidQueries = [
+    undefined,
+    null,
+    "search=react",
+    { ...emptyQuery(), search: undefined },
+    { ...emptyQuery(), categoryIds: undefined },
+    { ...emptyQuery(), categoryIds: "web" },
+    { ...emptyQuery(), tags: [1, 2] },
+    { ...emptyQuery(), sortChoiceId: undefined },
+  ];
+  for (const query of invalidQueries) {
+    assert.throws(
+      () => renderToStaticMarkup(React.createElement(Projects, { model, query })),
+      (error) => error instanceof ValidationError && error.code === "view.validation_failed" && error.modelKind === "projects",
+      `expected a typed ValidationError for query ${JSON.stringify(query)}`,
+    );
+  }
+});
+
 test("S14.3 TextSizeControl exposes an accessible radiogroup with accurate checked state", () => {
   const model = textSizeModel();
   const markup = renderToStaticMarkup(React.createElement(TextSizeControl, { model, value: "large", onChange: () => {} }));

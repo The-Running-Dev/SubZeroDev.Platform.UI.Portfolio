@@ -112,6 +112,7 @@ export function hydratePortfolioRoute(options) {
 
 function safeRead(storage, key) { try { return storage.read(key); } catch { return null; } }
 function safeWrite(storage, key, value) { try { storage.write(key, value); } catch {} }
+function safeRemove(storage, key) { try { storage.remove(key); } catch {} }
 function safeSetAttribute(dom, name, value) { try { dom.setAttribute(name, value); } catch {} }
 function safeRemoveAttribute(dom, name) { try { dom.removeAttribute(name); } catch {} }
 
@@ -144,6 +145,7 @@ export function createTextSizeController(model, key, storage, dom) {
   const choices = new Map(model.choices.map((choice) => [choice.id, choice.scaleToken]));
   const saved = safeRead(storage, key);
   const initial = choices.has(saved) ? saved : model.defaultChoiceId;
+  if (saved !== null && !choices.has(saved)) safeRemove(storage, key);
   return preferenceController(
     initial,
     (value) => safeSetAttribute(dom, attribute, choices.get(value)),
@@ -158,6 +160,7 @@ export function createReaderModeController(model, key, storage, dom) {
   const attribute = "data-szd-portfolio-reader-mode";
   const saved = safeRead(storage, key);
   const initial = saved === "true" ? true : saved === "false" ? false : model.defaultEnabled;
+  if (saved !== null && saved !== "true" && saved !== "false") safeRemove(storage, key);
   return preferenceController(
     initial,
     (value) => (value ? safeSetAttribute(dom, attribute, "true") : safeRemoveAttribute(dom, attribute)),

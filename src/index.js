@@ -448,6 +448,23 @@ function periodSortKey(project) {
 
 function compareOrdinal(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
 
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function checkedProjectsQuery(query) {
+  const issues = [];
+  if (!isRecord(query)) {
+    issues.push(issue("view.expected_object", [], "A Projects query object is required."));
+  } else {
+    if (typeof query.search !== "string") issues.push(issue("view.expected_string", ["search"], "A string is required."));
+    if (!isStringArray(query.categoryIds)) issues.push(issue("view.expected_array", ["categoryIds"], "An array of strings is required."));
+    if (!isStringArray(query.tags)) issues.push(issue("view.expected_array", ["tags"], "An array of strings is required."));
+    if (typeof query.sortChoiceId !== "string") issues.push(issue("view.expected_string", ["sortChoiceId"], "A string is required."));
+  }
+  if (issues.length > 0) throw new ValidationError("view.validation_failed", "projects query is invalid.", { modelKind: "projects", issues });
+}
+
 export function filterProjects(model, query) {
   const filtered = model.projects.filter((project) => matchesSearch(project, query.search)
     && matchesFacet(project.categoryIds, query.categoryIds)
@@ -612,6 +629,7 @@ function projectsFacetControl(key, className, legend, items, selectedIds, resolv
 
 export function Projects({ model, query }) {
   checked(model, "projects", validateProjectsViewModelV1);
+  checkedProjectsQuery(query);
   const results = filterProjects(model, query);
   const availableTags = [...new Set(model.projects.flatMap((project) => project.tags))].sort(compareOrdinal);
   const stateKey = JSON.stringify([query.search, [...query.categoryIds].sort(compareOrdinal), [...query.tags].sort(compareOrdinal), query.sortChoiceId]);
