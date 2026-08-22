@@ -4,13 +4,18 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CV, Portfolio } from "./index.js";
+import { CV, Portfolio, Projects } from "./index.js";
 import { defineSource, isDefinedSource, resolveSource, sourceDefinition } from "./resolution.js";
 
-const presentationRenderers = { portfolio: Portfolio, cv: CV };
+const presentationRenderers = { portfolio: Portfolio, cv: CV, projects: Projects };
+const presentationSlotKinds = { chromeSourceId: "site-chrome", versionSourceId: "version-display", textSizeSourceId: "text-size", readerModeSourceId: "reader-mode" };
+const defaultProjectsQuery = Object.freeze({ search: "", categoryIds: [], tags: [], sortChoiceId: "" });
 const here = dirname(fileURLToPath(import.meta.url));
 const manifestPath = join(here, "builder", "provenance.json");
+const stylesheetPath = join(here, "styles.css");
 const artifactName = ".szd-portfolio-artifact.json";
+const bootstrapScriptOutput = "assets/szd-portfolio-bootstrap.js";
+const coreStylesheetOutput = "assets/szd-portfolio-core.css";
 
 export class BuilderError extends Error {
   constructor(code, message, options = {}) { super(message, options.cause === undefined ? undefined : { cause: options.cause }); this.name = "BuilderError"; this.code = code; this.routePath = options.routePath; this.sourceId = options.sourceId; this.path = options.path; this.issues = options.issues ?? []; this.causes = options.causes ?? []; this.gates = options.gates ?? []; if (options.cause !== undefined) this.cause = options.cause; }
@@ -46,6 +51,20 @@ function outputFile(route) { return route === "/" ? "index.html" : `${route.repl
 export { defineSource };
 
 export function definePortfolioSite(config) { const result = validatePortfolioSiteConfigV1(config); if (!result.ok) throw new BuilderError("config.invalid", "Invalid site configuration", { issues: result.issues }); return config; }
+
+function isNonEmptyString(value) { return typeof value === "string" && value.length > 0; }
+function isStringArray(value) { return Array.isArray(value) && value.every((item) => typeof item === "string"); }
+// Sources are flat, standalone declarations (id, timing, provider, validator, projection, view model) with no
+// reference to any other source or route. Routes reference sources one-directionally via requiredSourceIds.
+// The v1 schema therefore has no field through which a route/source cycle could be constructed; the graph is
+// acyclic by construction, and S15.2's cycle clause is satisfied vacuously rather than by runtime detection.
+function normalizedRoutePath(path) {
+  if (typeof path !== "string" || !path.startsWith("/") || path.includes("..") || path.includes("//")) return undefined;
+  if (path !== "/" && path.endsWith("/")) return undefined;
+  return path;
+}
+function servedRoutePath(basePath, path) { return basePath === undefined ? path : path === "/" ? basePath : `${basePath}${path}`; }
+
 export function validatePortfolioSiteConfigV1(input) {
   const issues = [];
   if (!record(input)) return { ok: false, issues: [issue("config.expected_object", [])] };
@@ -54,10 +73,124 @@ export function validatePortfolioSiteConfigV1(input) {
   if (input.version !== 1) issues.push(issue("config.unsupported_version", ["version"]));
   if (!Array.isArray(input.routes) || input.routes.length === 0) issues.push(issue("config.routes_required", ["routes"]));
   if (!Array.isArray(input.sources)) issues.push(issue("config.sources_required", ["sources"]));
-  if (!record(input.metadata) || typeof input.metadata.title !== "string" || !input.metadata.title) issues.push(issue("config.metadata_invalid", ["metadata"]));
+  if (!record(input.metadata) || typeof input.metadata.title !== "string" || !input.metadata.title) {
+    issues.push(issue("config.metadata_invalid", ["metadata"]));
+  } else {
+    const metadataAllowed = new Set(["title", "description", "language"]);
+    for (const key of Object.keys(input.metadata)) if (!metadataAllowed.has(key)) issues.push(issue("config.metadata_invalid", ["metadata", key]));
+    if (input.metadata.description !== undefined && typeof input.metadata.description !== "string") issues.push(issue("config.metadata_invalid", ["metadata", "description"]));
+    if (input.metadata.language !== undefined && !isNonEmptyString(input.metadata.language)) issues.push(issue("config.metadata_invalid", ["metadata", "language"]));
+  }
   for (const key of ["styles", "navigation", "publicAssets"]) if (!Array.isArray(input[key])) issues.push(issue("config.array_required", [key]));
-  const ids = new Set(); for (const [i, source] of (input.sources ?? []).entries()) { if (!isDefinedSource(source)) issues.push(issue("config.source_invalid", ["sources", i])); else if (ids.has(source.id)) issues.push(issue("config.duplicate_source", ["sources", i, "id"])); else ids.add(source.id); }
-  const paths = new Set(); for (const [i, route] of (input.routes ?? []).entries()) { if (!record(route) || typeof route.path !== "string" || !route.path.startsWith("/") || route.path.includes("..")) { issues.push(issue("config.route_invalid", ["routes", i])); continue; } if (paths.has(route.path)) issues.push(issue("config.duplicate_route", ["routes", i, "path"])); paths.add(route.path); if (!Array.isArray(route.requiredSourceIds) || !record(route.presentation) || !Object.hasOwn(presentationRenderers, route.presentation.kind)) { issues.push(issue("config.route_invalid", ["routes", i])); continue; } for (const id of route.requiredSourceIds) if (!ids.has(id)) issues.push(issue("config.missing_source", ["routes", i, "requiredSourceIds"])); const modelSourceId = route.presentation.modelSourceId; const modelSource = (input.sources ?? []).find((source) => isDefinedSource(source) && source.id === modelSourceId); if (typeof modelSourceId !== "string" || !route.requiredSourceIds.includes(modelSourceId) || !modelSource || sourceDefinition(modelSource).viewModel.kind !== route.presentation.kind) issues.push(issue("config.presentation_source_invalid", ["routes", i, "presentation", "modelSourceId"])); }
+
+  let basePath;
+  if (input.deployment !== undefined) {
+    const deploymentAllowed = new Set(["basePath", "canonicalUrl", "documentationDestination"]);
+    if (!record(input.deployment)) {
+      issues.push(issue("config.deployment_invalid", ["deployment"]));
+    } else {
+      for (const key of Object.keys(input.deployment)) if (!deploymentAllowed.has(key)) issues.push(issue("config.deployment_invalid", ["deployment", key]));
+      if (input.deployment.basePath !== undefined) {
+        const value = input.deployment.basePath;
+        if (typeof value !== "string" || value === "" || value === "/" || !value.startsWith("/") || value.endsWith("/") || value.includes("..") || value.includes("//")) issues.push(issue("config.deployment_invalid", ["deployment", "basePath"]));
+        else basePath = value;
+      }
+      if (input.deployment.canonicalUrl !== undefined && !isNonEmptyString(input.deployment.canonicalUrl)) issues.push(issue("config.deployment_invalid", ["deployment", "canonicalUrl"]));
+      if (input.deployment.documentationDestination !== undefined && (!isNonEmptyString(input.deployment.documentationDestination) || input.deployment.documentationDestination.includes(".."))) issues.push(issue("config.deployment_invalid", ["deployment", "documentationDestination"]));
+    }
+  }
+
+  const ids = new Set();
+  for (const [i, source] of (input.sources ?? []).entries()) { if (!isDefinedSource(source)) issues.push(issue("config.source_invalid", ["sources", i])); else if (ids.has(source.id)) issues.push(issue("config.duplicate_source", ["sources", i, "id"])); else ids.add(source.id); }
+  function findSource(id) { return (input.sources ?? []).find((source) => isDefinedSource(source) && source.id === id); }
+
+  const outputs = new Map();
+  function claimOutput(path, at) { if (outputs.has(path)) issues.push(issue("config.output_collision", at)); else outputs.set(path, at); }
+  claimOutput(bootstrapScriptOutput, []);
+  claimOutput(artifactName, []);
+
+  const servedPaths = new Set();
+  for (const [i, route] of (input.routes ?? []).entries()) {
+    if (!record(route)) { issues.push(issue("config.route_invalid", ["routes", i])); continue; }
+    const normalizedPath = normalizedRoutePath(route.path);
+    if (normalizedPath === undefined) { issues.push(issue("config.route_invalid", ["routes", i, "path"])); continue; }
+    const served = servedRoutePath(basePath, normalizedPath);
+    if (servedPaths.has(served)) issues.push(issue("config.duplicate_route", ["routes", i, "path"]));
+    servedPaths.add(served);
+    claimOutput(outputFile(normalizedPath), ["routes", i, "path"]);
+
+    if (!record(route.metadata) || !isNonEmptyString(route.metadata.title)) {
+      issues.push(issue("config.route_metadata_invalid", ["routes", i, "metadata"]));
+    } else {
+      const routeMetadataAllowed = new Set(["title", "description", "canonicalUrl", "socialImage"]);
+      for (const key of Object.keys(route.metadata)) if (!routeMetadataAllowed.has(key)) issues.push(issue("config.route_metadata_invalid", ["routes", i, "metadata", key]));
+      for (const key of ["description", "canonicalUrl", "socialImage"]) if (route.metadata[key] !== undefined && typeof route.metadata[key] !== "string") issues.push(issue("config.route_metadata_invalid", ["routes", i, "metadata", key]));
+    }
+
+    if (!isStringArray(route.requiredSourceIds)) { issues.push(issue("config.route_invalid", ["routes", i, "requiredSourceIds"])); continue; }
+    const requiredIds = new Set();
+    for (const [j, id] of route.requiredSourceIds.entries()) {
+      if (requiredIds.has(id)) issues.push(issue("config.duplicate_required_source", ["routes", i, "requiredSourceIds", j]));
+      requiredIds.add(id);
+      if (!ids.has(id)) issues.push(issue("config.missing_source", ["routes", i, "requiredSourceIds", j]));
+    }
+
+    if (!record(route.presentation) || !Object.hasOwn(presentationRenderers, route.presentation.kind)) { issues.push(issue("config.route_invalid", ["routes", i, "presentation"])); continue; }
+    const presentation = route.presentation;
+    const modelSourceId = presentation.modelSourceId;
+    const modelSource = findSource(modelSourceId);
+    if (typeof modelSourceId !== "string" || !requiredIds.has(modelSourceId) || !modelSource || sourceDefinition(modelSource).viewModel.kind !== presentation.kind) {
+      issues.push(issue("config.presentation_source_invalid", ["routes", i, "presentation", "modelSourceId"]));
+    }
+    for (const [slot, expectedKind] of Object.entries(presentationSlotKinds)) {
+      const slotSourceId = presentation[slot];
+      if (slotSourceId === undefined) continue;
+      const slotSource = findSource(slotSourceId);
+      if (typeof slotSourceId !== "string" || !requiredIds.has(slotSourceId) || !slotSource || sourceDefinition(slotSource).viewModel.kind !== expectedKind) {
+        issues.push(issue("config.presentation_source_invalid", ["routes", i, "presentation", slot]));
+      }
+    }
+  }
+
+  let coreStyleDeclared = false;
+  if (Array.isArray(input.styles)) {
+    for (const [i, style] of input.styles.entries()) {
+      if (!record(style)) { issues.push(issue("config.style_invalid", ["styles", i])); continue; }
+      if (style.kind === "portfolio-core") {
+        if (coreStyleDeclared) issues.push(issue("config.duplicate_style", ["styles", i]));
+        if (!exactKeys(style, ["kind"])) issues.push(issue("config.style_invalid", ["styles", i]));
+        coreStyleDeclared = true;
+        claimOutput(coreStylesheetOutput, ["styles", i]);
+      } else if (style.kind === "consumer-stylesheet") {
+        if (!exactKeys(style, ["kind", "sourcePath", "outputPath"]) || !isNonEmptyString(style.sourcePath) || style.sourcePath.includes("..") || !style.sourcePath.endsWith(".css") || !isNonEmptyString(style.outputPath) || style.outputPath.includes("..") || style.outputPath.startsWith("/") || !style.outputPath.endsWith(".css")) {
+          issues.push(issue("config.style_invalid", ["styles", i]));
+        } else {
+          claimOutput(style.outputPath, ["styles", i]);
+        }
+      } else {
+        issues.push(issue("config.style_invalid", ["styles", i, "kind"]));
+      }
+    }
+  }
+
+  if (Array.isArray(input.navigation)) {
+    for (const [i, item] of input.navigation.entries()) {
+      const expectedKeys = item?.destination === undefined ? ["id"] : ["id", "destination"];
+      if (!record(item) || !isNonEmptyString(item.id) || !exactKeys(item, expectedKeys)) { issues.push(issue("config.navigation_invalid", ["navigation", i])); continue; }
+      if (item.destination !== undefined && (typeof item.destination !== "string" || !servedPaths.has(item.destination))) issues.push(issue("config.navigation_invalid", ["navigation", i, "destination"]));
+    }
+  }
+
+  if (Array.isArray(input.publicAssets)) {
+    for (const [i, asset] of input.publicAssets.entries()) {
+      if (!record(asset) || !exactKeys(asset, ["sourcePath", "outputPath"]) || !isNonEmptyString(asset.sourcePath) || asset.sourcePath.includes("..") || !isNonEmptyString(asset.outputPath) || asset.outputPath.includes("..") || asset.outputPath.startsWith("/")) {
+        issues.push(issue("config.asset_invalid", ["publicAssets", i]));
+      } else {
+        claimOutput(asset.outputPath, ["publicAssets", i]);
+      }
+    }
+  }
+
   return issues.length ? { ok: false, issues } : { ok: true, value: input };
 }
 
@@ -81,13 +214,22 @@ async function provenance() { const input = JSON.parse(await readFile(manifestPa
 async function resolveBuildSource(source) { const resolved = await resolveSource(source, { cancelled: false, onCancel: () => () => {} }); if (resolved.status === "error") throw new BuilderError("source_set.failed", "Source resolution failed", { sourceId: source.id, issues: resolved.error.issues, cause: resolved.error }); return resolved.status === "ready" ? { sourceId: source.id, status: "ready", value: resolved.data } : { sourceId: source.id, status: "fallback", value: resolved.data, fallbackError: resolved.error }; }
 async function write(path, data) { if (process.env.SZD_PORTFOLIO_FAIL_AT === "write") throw new Error("injected write failure"); await mkdir(dirname(path), { recursive: true }); await writeFile(path, data); }
 async function fileDigests(root) { const entries = []; async function walk(dir) { for (const entry of await (await import("node:fs/promises")).readdir(dir, { withFileTypes: true })) { const absolute = join(dir, entry.name); if (entry.isDirectory()) await walk(absolute); else entries.push({ path: relative(root, absolute).replaceAll("\\", "/"), digest: digest(await readFile(absolute)) }); } } await walk(root); return entries.sort((a, b) => a.path.localeCompare(b.path)); }
+async function regularContainedFile(root, relativePath) { const absolute = contained(root, relativePath); if (!absolute) return false; try { return (await stat(absolute)).isFile(); } catch { return false; } }
+async function verifyDeclaredFiles(root, config) {
+  for (const style of config.styles) if (style.kind === "consumer-stylesheet" && !(await regularContainedFile(root, style.sourcePath))) throw new BuilderError("asset.invalid", "Declared style source is missing or not a regular contained file", { path: style.sourcePath });
+  for (const asset of config.publicAssets) if (!(await regularContainedFile(root, asset.sourcePath))) throw new BuilderError("asset.invalid", "Declared public asset source is missing or not a regular contained file", { path: asset.sourcePath });
+}
+function styleHref(style) { return `/${style.kind === "portfolio-core" ? coreStylesheetOutput : style.outputPath}`; }
 export async function buildPortfolioSite(paths) {
   if (!paths?.rootDir || !paths?.configPath || !paths?.outDir) throw new BuilderError("config.invalid", "Every build path is required");
-  const config = await loadPortfolioConfig(paths.rootDir, paths.configPath); const manifest = await provenance(); const root = resolve(paths.rootDir); const out = contained(root, paths.outDir); if (!out) throw new BuilderError("config.invalid", "Output escapes root"); const lease = `${out}.lease.json`; const recovery = `${out}.recovery.json`;
+  const config = await loadPortfolioConfig(paths.rootDir, paths.configPath); const manifest = await provenance(); const root = resolve(paths.rootDir); const out = contained(root, paths.outDir); if (!out) throw new BuilderError("config.invalid", "Output escapes root");
+  await verifyDeclaredFiles(root, config);
+  const lease = `${out}.lease.json`; const recovery = `${out}.recovery.json`;
   try { await access(recovery); throw new BuilderError("recovery.required", "Recovery is required", { path: recovery }); } catch (error) { if (error instanceof BuilderError) throw error; }
   try { await access(lease); throw new BuilderError("lease.unavailable", "Writer lease unavailable", { path: lease }); } catch (error) { if (error instanceof BuilderError) throw error; }
   await writeFile(lease, canonical({ version: 1, operation: "build", normalizedTargetPath: out, ownerId: randomUUID() })); const staging = `${out}.staging-${randomUUID()}`; const previous = `${out}.previous-${randomUUID()}`;
   try {
+    const styleLinks = config.styles.map((style) => `<link rel="stylesheet" href="${styleHref(style)}">`).join("");
     const resolved = new Map(); const sourcesById = new Map(config.sources.map((source) => [source.id, source])); for (const source of config.sources) if (source.timing === "build") resolved.set(source.id, await resolveBuildSource(source));
     for (const route of config.routes) {
       const required = route.requiredSourceIds.map((id) => sourcesById.get(id));
@@ -108,12 +250,14 @@ export async function buildPortfolioSite(paths) {
         const sourceId = route.presentation.modelSourceId; const model = resolved.get(sourceId)?.value;
         if (!model) throw new BuilderError("route.invalid", "Presentation source missing", { routePath: route.path, sourceId });
         const Renderer = presentationRenderers[route.presentation.kind]; if (!Renderer) throw new BuilderError("route.invalid", "Unsupported presentation kind", { routePath: route.path });
-        body = renderToStaticMarkup(React.createElement(Renderer, { model }));
+        const extraProps = route.presentation.kind === "projects" ? { query: defaultProjectsQuery } : {};
+        body = renderToStaticMarkup(React.createElement(Renderer, { model, ...extraProps }));
       }
-      const html = `<!doctype html><html lang="${config.metadata.language ?? "en"}"><head><meta charset="utf-8"><title>${route.metadata?.title ?? config.metadata.title}</title></head><body>${body}<script type="application/json" id="szd-portfolio-bootstrap">${JSON.stringify(bootstrap).replaceAll("<", "\\u003c")}</script><script type="module" src="/assets/szd-portfolio-bootstrap.js"></script></body></html>`;
+      const html = `<!doctype html><html lang="${config.metadata.language ?? "en"}"><head><meta charset="utf-8"><title>${route.metadata?.title ?? config.metadata.title}</title>${styleLinks}</head><body>${body}<script type="application/json" id="szd-portfolio-bootstrap">${JSON.stringify(bootstrap).replaceAll("<", "\\u003c")}</script><script type="module" src="/${bootstrapScriptOutput}"></script></body></html>`;
       await write(join(staging, outputFile(route.path)), html);
     }
-    await write(join(staging, "assets/szd-portfolio-bootstrap.js"), "export {};\n");
+    await write(join(staging, bootstrapScriptOutput), "export {};\n");
+    if (config.styles.some((style) => style.kind === "portfolio-core")) { const destination = join(staging, coreStylesheetOutput); await mkdir(dirname(destination), { recursive: true }); await cp(stylesheetPath, destination); }
     for (const style of config.styles) if (style.kind === "consumer-stylesheet") { const source = contained(root, style.sourcePath); const destination = join(staging, style.outputPath); if (!source) throw new BuilderError("asset.invalid", "Style escapes root"); await mkdir(dirname(destination), { recursive: true }); await cp(source, destination); }
     for (const asset of config.publicAssets) { const source = contained(root, asset.sourcePath); const destination = join(staging, asset.outputPath); if (!source) throw new BuilderError("asset.invalid", "Asset escapes root"); await mkdir(dirname(destination), { recursive: true }); await cp(source, destination); }
     const files = await fileDigests(staging); const record = { version: 1, artifactDigest: "", packageVersion: "0.0.0-development", provenanceManifestDigest: manifest.manifestDigest, configurationDigest: digest({ version: config.version, routes: config.routes.map((r) => r.path) }), routes: config.routes.map((r) => r.path), sources: config.sources.map((s) => ({ id: s.id, timing: s.timing, modelVersion: 1, status: resolved.get(s.id)?.status })), files }; record.artifactDigest = digest({ ...record, artifactDigest: "" }); await write(join(staging, artifactName), canonical(record));

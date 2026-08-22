@@ -6,12 +6,49 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { BuilderError, buildPortfolioSite, validateProvenanceManifestV1 } from "../src/builder.js";
+import { BuilderError, buildPortfolioSite, defineSource, validatePortfolioSiteConfigV1, validateProvenanceManifestV1 } from "../src/builder.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const builderUrl = pathToFileURL(join(root, "src/builder.js")).href;
 const model = { version: 1, header: { title: "Built" }, statistics: [], categories: [], technologies: [], recentProjects: [] };
 const cvModel = { version: 1, header: { name: "Built", contact: [] }, sections: [] };
+const projectsModel = { version: 1, heading: "Projects", categories: [], sortChoices: [], projects: [] };
+const chromeModel = { version: 1, identity: { name: "Site" }, primaryNavigation: [], secondaryNavigation: [] };
+const versionModel = { version: 1, text: "v1" };
+const textSizeModel = { version: 1, label: "Size", choices: [{ id: "m", label: "Medium", scaleToken: "m" }], defaultChoiceId: "m" };
+const readerModeModel = { version: 1, label: "Reader", enabledLabel: "On", disabledLabel: "Off", defaultEnabled: false };
+
+function fixtureSource(id, kind, value) {
+  return defineSource({
+    id,
+    timing: "build",
+    provider: { kind: "fixture", publicDescriptor: [], resolve: async () => ({ value, metadata: [] }) },
+    validateRaw: (raw) => ({ ok: true, value: raw }),
+    project: (raw) => raw,
+    viewModel: { kind, validate: (candidate) => (candidate ? { ok: true, value: candidate } : { ok: false, issues: [] }) },
+  });
+}
+
+function validSiteConfig(overrides = {}) {
+  const portfolio = fixtureSource("portfolio", "portfolio", model);
+  const chrome = fixtureSource("chrome", "site-chrome", chromeModel);
+  const version = fixtureSource("version", "version-display", versionModel);
+  return {
+    version: 1,
+    metadata: { title: "Fixture" },
+    routes: [{
+      path: "/",
+      metadata: { title: "Root" },
+      presentation: { kind: "portfolio", modelSourceId: "portfolio", chromeSourceId: "chrome", versionSourceId: "version" },
+      requiredSourceIds: ["portfolio", "chrome", "version"],
+    }],
+    sources: [portfolio, chrome, version],
+    styles: [{ kind: "portfolio-core" }],
+    navigation: [{ id: "home", destination: "/" }],
+    publicAssets: [],
+    ...overrides,
+  };
+}
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -207,4 +244,128 @@ test("S11.5 injected write-boundary failure leaves the previous artifact byte-fo
   delete process.env.SZD_PORTFOLIO_FAIL_AT;
   assert.equal(await readFile(join(dir, "out/.szd-portfolio-artifact.json"), "utf8"), before);
   await assert.rejects(readFile(join(dir, "out.recovery.json")));
+});
+
+test("S15.1-S15.6 validatePortfolioSiteConfigV1 accepts a complete declaration", () => {
+  const result = validatePortfolioSiteConfigV1(validSiteConfig());
+  assert.equal(result.ok, true);
+});
+
+test("S15.2 rejects every planning-time route, source-reference, and cross-reference branch", () => {
+  const base = validSiteConfig();
+  const cases = [
+    ["duplicate route path", { ...base, routes: [base.routes[0], { ...base.routes[0], requiredSourceIds: ["portfolio", "chrome", "version"] }] }, "config.duplicate_route"],
+    ["escaping route path", { ...base, routes: [{ ...base.routes[0], path: "/../evil" }] }, "config.route_invalid"],
+    ["double-slash route path", { ...base, routes: [{ ...base.routes[0], path: "//double" }] }, "config.route_invalid"],
+    ["trailing-slash route path", { ...base, routes: [{ ...base.routes[0], path: "/trailing/" }] }, "config.route_invalid"],
+    ["duplicate required source id", { ...base, routes: [{ ...base.routes[0], requiredSourceIds: ["portfolio", "portfolio", "chrome", "version"] }] }, "config.duplicate_required_source"],
+    ["missing required source", { ...base, routes: [{ ...base.routes[0], requiredSourceIds: ["portfolio", "chrome", "version", "absent"] }] }, "config.missing_source"],
+    ["route metadata missing title", { ...base, routes: [{ ...base.routes[0], metadata: {} }] }, "config.route_metadata_invalid"],
+    ["route metadata unknown field", { ...base, routes: [{ ...base.routes[0], metadata: { title: "Root", extra: true } }] }, "config.route_metadata_invalid"],
+    ["presentation slot kind mismatch", { ...base, routes: [{ ...base.routes[0], presentation: { ...base.routes[0].presentation, chromeSourceId: "portfolio" }, requiredSourceIds: ["portfolio", "version"] }] }, "config.presentation_source_invalid"],
+    ["presentation slot missing from requiredSourceIds", { ...base, routes: [{ ...base.routes[0], requiredSourceIds: ["portfolio", "chrome"] }] }, "config.presentation_source_invalid"],
+    ["navigation destination does not resolve to a declared route", { ...base, navigation: [{ id: "missing", destination: "/nowhere" }] }, "config.navigation_invalid"],
+    ["navigation item missing id", { ...base, navigation: [{ destination: "/" }] }, "config.navigation_invalid"],
+    ["deployment basePath malformed", { ...base, deployment: { basePath: "no-leading-slash" } }, "config.deployment_invalid"],
+    ["deployment unknown field", { ...base, deployment: { unexpected: true } }, "config.deployment_invalid"],
+  ];
+  for (const [name, config, code] of cases) {
+    const result = validatePortfolioSiteConfigV1(config);
+    assert.equal(result.ok, false, name);
+    assert.ok(result.issues.some((entry) => entry.code === code), `${name}: ${JSON.stringify(result.issues)}`);
+  }
+});
+
+test("S15.2 accepts a route/source graph without a cycle field to construct one", () => {
+  // Sources are flat and reference nothing; routes reference sources one-directionally. No schema field
+  // lets a source reference a route or another source, so the graph is acyclic by construction.
+  const result = validatePortfolioSiteConfigV1(validSiteConfig());
+  assert.equal(result.ok, true);
+});
+
+test("S15.3 rejects every style and asset declaration branch", () => {
+  const base = validSiteConfig();
+  const cases = [
+    ["duplicate portfolio-core style", { ...base, styles: [{ kind: "portfolio-core" }, { kind: "portfolio-core" }] }, "config.duplicate_style"],
+    ["consumer stylesheet wrong extension", { ...base, styles: [{ kind: "consumer-stylesheet", sourcePath: "custom.txt", outputPath: "assets/custom.css" }] }, "config.style_invalid"],
+    ["consumer stylesheet escaping source", { ...base, styles: [{ kind: "consumer-stylesheet", sourcePath: "../custom.css", outputPath: "assets/custom.css" }] }, "config.style_invalid"],
+    ["consumer stylesheet absolute output", { ...base, styles: [{ kind: "consumer-stylesheet", sourcePath: "custom.css", outputPath: "/assets/custom.css" }] }, "config.style_invalid"],
+    ["style output collides with another declared style", { ...base, styles: [{ kind: "consumer-stylesheet", sourcePath: "custom.css", outputPath: "assets/shared.css" }, { kind: "consumer-stylesheet", sourcePath: "other.css", outputPath: "assets/shared.css" }] }, "config.output_collision"],
+    ["public asset escaping source", { ...base, publicAssets: [{ sourcePath: "../secret.png", outputPath: "secret.png" }] }, "config.asset_invalid"],
+    ["public asset absolute output", { ...base, publicAssets: [{ sourcePath: "logo.png", outputPath: "/logo.png" }] }, "config.asset_invalid"],
+    ["public asset output collides with a style", { ...base, styles: [{ kind: "portfolio-core" }], publicAssets: [{ sourcePath: "logo.png", outputPath: "assets/szd-portfolio-core.css" }] }, "config.output_collision"],
+    ["public asset output collides with the bootstrap bundle", { ...base, publicAssets: [{ sourcePath: "logo.png", outputPath: "assets/szd-portfolio-bootstrap.js" }] }, "config.output_collision"],
+    ["public asset output collides with another asset", { ...base, publicAssets: [{ sourcePath: "logo.png", outputPath: "shared.png" }, { sourcePath: "other.png", outputPath: "shared.png" }] }, "config.output_collision"],
+  ];
+  for (const [name, config, code] of cases) {
+    const result = validatePortfolioSiteConfigV1(config);
+    assert.equal(result.ok, false, name);
+    assert.ok(result.issues.some((entry) => entry.code === code), `${name}: ${JSON.stringify(result.issues)}`);
+  }
+});
+
+test("S15.3 build fails before staging promotion when a declared style or asset file is missing", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-assets-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  const config = `import { definePortfolioSite, defineSource } from ${JSON.stringify(builderUrl)};
+const source = defineSource({ id: "portfolio", timing: "build", provider: { kind: "fixture", publicDescriptor: [], resolve: async () => ({ value: ${JSON.stringify(model)}, metadata: [] }) }, validateRaw: (value) => ({ ok: true, value }), project: (value) => value, viewModel: { kind: "portfolio", validate: (value) => value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] } } });
+export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: "/", metadata: { title: "Root" }, presentation: { kind: "portfolio", modelSourceId: "portfolio" }, requiredSourceIds: ["portfolio"] }], sources: [source], styles: [{ kind: "consumer-stylesheet", sourcePath: "missing.css", outputPath: "assets/missing.css" }], navigation: [], publicAssets: [] });`;
+  await writeFile(join(dir, "site.mjs"), config);
+  await assert.rejects(buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }), (error) => error instanceof BuilderError && error.code === "asset.invalid");
+  await assert.rejects(readFile(join(dir, "out/index.html")));
+});
+
+test("S15.1, S15.4, and S15.5 build a multi-route site with every route kind, ordered stylesheets, and navigation", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-multiroute-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, "custom.css"), ".custom{color:red}");
+  await writeFile(join(dir, "favicon.ico"), "icon");
+  const config = `import { definePortfolioSite, defineSource } from ${JSON.stringify(builderUrl)};
+function source(id, kind, value) { return defineSource({ id, timing: "build", provider: { kind: "fixture", publicDescriptor: [], resolve: async () => ({ value, metadata: [] }) }, validateRaw: (v) => ({ ok: true, value: v }), project: (v) => v, viewModel: { kind, validate: (v) => v ? { ok: true, value: v } : { ok: false, issues: [] } } }); }
+const overview = source("overview", "portfolio", ${JSON.stringify(model)});
+const cv = source("cv", "cv", ${JSON.stringify(cvModel)});
+const projects = source("projects", "projects", ${JSON.stringify(projectsModel)});
+export default definePortfolioSite({
+  version: 1,
+  metadata: { title: "Fixture" },
+  routes: [
+    { path: "/", metadata: { title: "Root" }, presentation: { kind: "portfolio", modelSourceId: "overview" }, requiredSourceIds: ["overview"] },
+    { path: "/cv", metadata: { title: "CV" }, presentation: { kind: "cv", modelSourceId: "cv" }, requiredSourceIds: ["cv"] },
+    { path: "/work", metadata: { title: "Work" }, presentation: { kind: "projects", modelSourceId: "projects" }, requiredSourceIds: ["projects"] },
+  ],
+  sources: [overview, cv, projects],
+  styles: [{ kind: "portfolio-core" }, { kind: "consumer-stylesheet", sourcePath: "custom.css", outputPath: "assets/custom.css" }],
+  navigation: [{ id: "home", destination: "/" }, { id: "cv", destination: "/cv" }, { id: "work", destination: "/work" }],
+  publicAssets: [{ sourcePath: "favicon.ico", outputPath: "favicon.ico" }],
+});`;
+  await writeFile(join(dir, "site.mjs"), config);
+  const { record } = await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  assert.deepEqual(record.routes, ["/", "/cv", "/work"]);
+
+  const coreCss = await readFile(join(root, "src/styles.css"), "utf8");
+  assert.equal(await readFile(join(dir, "out/assets/szd-portfolio-core.css"), "utf8"), coreCss);
+  assert.equal(await readFile(join(dir, "out/assets/custom.css"), "utf8"), ".custom{color:red}");
+  assert.equal(await readFile(join(dir, "out/favicon.ico"), "utf8"), "icon");
+
+  const home = await readFile(join(dir, "out/index.html"), "utf8");
+  const coreIndex = home.indexOf("/assets/szd-portfolio-core.css");
+  const customIndex = home.indexOf("/assets/custom.css");
+  assert.ok(coreIndex >= 0 && customIndex > coreIndex, "core stylesheet link precedes the consumer stylesheet link, matching declared order");
+  assert.equal((home.match(/rel="stylesheet"/g) ?? []).length, 2);
+
+  const cvHtml = await readFile(join(dir, "out/cv/index.html"), "utf8");
+  assert.match(cvHtml, /szd-portfolio-cv/);
+  const projectsHtml = await readFile(join(dir, "out/work/index.html"), "utf8");
+  assert.match(projectsHtml, /szd-portfolio-projects-view/);
+});
+
+test("S15.4 the package's own JavaScript entrypoint imports no stylesheet", async () => {
+  const source = await readFile(join(root, "src/index.js"), "utf8");
+  assert.doesNotMatch(source, /import\s+["'].*\.css["']/);
+});
+
+test("S15.6 a root-only fixture emits exactly one route and no consumer product data", async (t) => {
+  const { dir } = await fixture({ route: "/" }); t.after(() => rm(dir, { recursive: true, force: true }));
+  const { record } = await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  assert.deepEqual(record.routes, ["/"]);
+  await assert.rejects(readFile(join(dir, "out/work/index.html")));
+  assert.match(await readFile(join(dir, "out/index.html"), "utf8"), /szd-portfolio-overview/);
 });
