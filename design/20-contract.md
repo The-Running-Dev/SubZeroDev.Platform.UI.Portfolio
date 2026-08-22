@@ -144,10 +144,12 @@ does not thereby acquire later slices' declarations, integrations, or behavior.
 S10 materializes its shared validation and link declarations, Portfolio model,
 validator, selectors, renderer, and validation error in
 [`src/index.d.ts`](../src/index.d.ts) and [`src/index.js`](../src/index.js).
-Those files are canonical for their declarations; the remaining scaffold below
-imports their types where later-slice declarations require them. String
-constraints are enforced by validators; TypeScript string annotations alone do
-not establish them.
+S13 materializes SiteChrome, CV, and VersionDisplay there in the same way, and
+S14 materializes Projects, TextSize, ReaderMode, their validators,
+`filterProjects`, and `summarizeProjects`. Those files are canonical for their
+declarations; the remaining scaffold below imports their types where
+later-slice declarations require them. String constraints are enforced by
+validators; TypeScript string annotations alone do not establish them.
 
 ~~~ts
 import type { ReactElement, ReactNode } from "react";
@@ -788,8 +790,8 @@ validator contract, Portfolio selectors, the Portfolio renderer, and their
 error declarations. S12 materialises the root resolution, complete-set, and
 browser-bootstrap declarations it requires plus "./browser" limited to
 browser-source settlement, route hydration, refresh generations, and disposal.
-Preference storage, DOM preference application, and Projects URL state remain
-unmaterialised scaffolds.
+S14 materialises the preference storage, DOM preference application, and
+Projects URL state controllers behind that same "./browser" path.
 
 ### Builder API
 
@@ -940,6 +942,12 @@ executing package version selects its bundled manifest, and consumer input
 cannot override it.
 
 ### Browser API
+
+S12 materializes `BrowserError` and `hydratePortfolioRoute` in
+[`src/browser.d.ts`](../src/browser.d.ts) and [`src/browser.js`](../src/browser.js).
+S14 materializes the preference/URL ports and `createTextSizeController`,
+`createReaderModeController`, and `createProjectsUrlController` there in the
+same way. Those files are canonical for their declarations.
 
 ~~~ts
 export type BrowserErrorCode =

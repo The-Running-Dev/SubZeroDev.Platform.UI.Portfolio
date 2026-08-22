@@ -603,6 +603,33 @@ Reversibility: moderate before publication and expensive afterward. The
 coordinator, aggregate states, bootstrap ownership, and lifecycle errors become
 semver-governed browser behavior.
 
+### 2026-08-22 — Projects sort choices are a small, package-recognized enum
+
+Context: `ProjectsViewModelV1.sortChoices` declares `{id, label}` pairs and
+`ProjectsQueryV1.sortChoiceId` selects one, but the contract left the actual
+reordering behavior for a given id undefined — the type alone cannot say what
+"newest" or any other id does to project order, and S14.2 requires an exact,
+deterministic result.
+
+Chosen: `filterProjects` recognizes a closed set of two sort ids it implements
+itself — `"newest"` (ongoing projects first, then by declared period end/start
+descending) and `"title"` (ordinal ascending, no locale comparison, per the
+existing "time and locale dependencies are explicit" decision). A consumer's
+`sortChoices` entry must use one of these ids or `validateProjectsViewModelV1`
+rejects it as `view.unknown_sort_choice`; an unrecognized `sortChoiceId` on a
+query (e.g. from a stale saved preference) falls back to declaration order
+rather than throwing, consistent with S14.4's unknown-saved-choice recovery.
+
+Rejected: **no built-in semantics** — leaves sorting entirely to the consumer
+and makes `sortChoices`/`sortChoiceId` decorative rather than functional;
+asked and rejected in favor of the fixed enum. **open consumer-defined sort
+ids with a comparator capability** — adds a function-typed contract field and
+a new capability boundary this slice's acceptance criteria do not call for.
+
+Reversibility: moderate. Adding more recognized sort ids later is additive;
+changing "newest"'s or "title"'s ordering after a release is a compatibility
+break under P16.
+
 ## Open
 
 None.
