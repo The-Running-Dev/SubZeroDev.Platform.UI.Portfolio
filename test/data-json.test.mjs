@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile as execFileCallback } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCallback);
 
 import { defineSource, portfolioViewModelV1Contract, resolveSource } from "../src/index.js";
 import { createDataJsonProvider, DataJsonAdapterError } from "../src/data-json.js";
@@ -44,10 +49,9 @@ test("S16.2 a Data.Json value crosses consumer validation, projection, and packa
     provider: createDataJsonProvider({ id: "portfolio", loader, publicDescriptor: [] }),
     validateRaw: (raw) => { order.push("validateRaw"); return { ok: true, value: raw }; },
     project: (raw) => { order.push("project"); void raw; return model; },
-    viewModel: portfolioViewModelV1Contract,
+    viewModel: { kind: "portfolio", validate: (candidate) => { order.push("view"); return portfolioViewModelV1Contract.validate(candidate); } },
   });
   const resolution = await resolveSource(source, { cancelled: false });
-  order.push("view");
   assert.equal(resolution.status, "ready");
   assert.deepEqual(order, ["provider", "validateRaw", "project", "view"]);
   assert.equal(loader.calls.loadById.length, 1);
@@ -99,7 +103,54 @@ test("S16.3 invalid metadata produces data_json.metadata_invalid without copying
 });
 
 test("S16.5 the Data.Json entrypoint imports independently of the rest of the package", async () => {
-  const dataJson = await import("../src/data-json.js");
-  assert.equal(typeof dataJson.createDataJsonProvider, "function");
-  assert.equal(typeof dataJson.DataJsonAdapterError, "function");
+  const entry = new URL("../src/data-json.js", import.meta.url);
+  const source = await readFile(entry, "utf8");
+  const patterns = [/^\s*import\s+(?:[^"']*?\bfrom\s*)?["']([^"']+)["']/gm, /^\s*export\s+[^"']*?\bfrom\s*["']([^"']+)["']/gm, /\bimport\s*\(\s*["']([^"']+)["']/g];
+  const imported = patterns.flatMap((pattern) => [...source.matchAll(pattern)].map(([, specifier]) => specifier));
+  assert.deepEqual(imported, [], `data-json must import nothing, found ${imported.join(", ")}`);
+
+  const { stdout } = await execFile(process.execPath, ["--input-type=module", "--eval", [
+    `const dataJson = await import(${JSON.stringify(entry.href)});`,
+    'if (typeof dataJson.createDataJsonProvider !== "function") throw new Error("createDataJsonProvider is missing");',
+    'if (typeof dataJson.DataJsonAdapterError !== "function") throw new Error("DataJsonAdapterError is missing");',
+    'process.stdout.write("ok");',
+  ].join("\n")]);
+  assert.equal(stdout, "ok");
+});
+
+test("S16.1 the public descriptor is copied so later mutation cannot change the declared public facts", () => {
+  const loader = loaderFrom({ loadById: () => ({ ok: true, reason: "json.ok", data: model, meta: meta() }) });
+  const descriptor = [{ name: "id", value: "portfolio" }];
+  const provider = createDataJsonProvider({ id: "portfolio", loader, publicDescriptor: descriptor });
+  descriptor.push({ name: "leaked", value: "secret" });
+  descriptor[0].value = "mutated";
+  assert.deepEqual(provider.publicDescriptor, [{ name: "id", value: "portfolio" }]);
+});
+
+test("S16.3 an invalidation failure produces data_json.refresh_unavailable and retains the cause", async () => {
+  const loader = loaderFrom({
+    loadById: () => ({ ok: true, reason: "json.ok", data: model, meta: meta() }),
+    invalidate: () => { throw new Error("loader is disposed"); },
+  });
+  const provider = createDataJsonProvider({ id: "portfolio", loader, publicDescriptor: [] });
+  await assert.rejects(() => provider.refresh({ cancelled: false }), (error) => error instanceof DataJsonAdapterError && error.code === "data_json.refresh_unavailable" && error.cause instanceof Error);
+  assert.deepEqual(loader.calls.loadById, []);
+});
+
+test("S16.4 cancellation during the load suppresses publication without claiming the request was aborted", async () => {
+  const signal = { cancelled: false };
+  const loader = loaderFrom({ loadById: () => { signal.cancelled = true; return { ok: true, reason: "json.ok", data: model, meta: meta() }; } });
+  const source = defineSource({
+    id: "portfolio",
+    timing: "browser",
+    provider: createDataJsonProvider({ id: "portfolio", loader, publicDescriptor: [] }),
+    validateRaw: (raw) => ({ ok: true, value: raw }),
+    project: (raw) => raw,
+    viewModel: portfolioViewModelV1Contract,
+  });
+  const resolution = await resolveSource(source, signal);
+  assert.equal(resolution.status, "error");
+  assert.equal(resolution.error.code, "source.failed");
+  assert.match(resolution.error.message, /cancelled/);
+  assert.deepEqual(loader.calls.loadById, ["portfolio"]);
 });

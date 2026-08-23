@@ -52,7 +52,7 @@ test("S10.1, S10.6, and S12.6 packed entries install, SSR-render, and Vite-bundl
   }
 });
 
-test("S16.1 and S16.5 the data-json entry resolves a declared id through a consumer-supplied loader, and Data.Json stays absent from the root install", async (t) => {
+test("S16.1 and S16.5 the data-json entry resolves a declared id through a peer-clean consumer install, and Data.Json stays absent from the root install", async (t) => {
   const { stdout } = await execFile("npm", ["pack", "--json"], { cwd: root });
   const [{ filename }] = JSON.parse(stdout);
   const tarball = join(root, filename);
@@ -61,7 +61,7 @@ test("S16.1 and S16.5 the data-json entry resolves a declared id through a consu
   const consumer = await mkdtemp(join(tmpdir(), "szd-portfolio-data-json-"));
   t.after(async () => rm(consumer, { recursive: true, force: true }));
   await writeFile(join(consumer, "package.json"), JSON.stringify({ type: "module" }));
-  await execFile("npm", ["install", "--no-package-lock", "--legacy-peer-deps", tarball, "react@19.2.8", "react-dom@19.2.8", "subzerodev-data-json@0.2.0"], { cwd: consumer });
+  await execFile("npm", ["install", "--no-package-lock", tarball, "react@18.3.1", "react-dom@18.3.1", "subzerodev-data-json@0.2.0"], { cwd: consumer });
   await writeFile(join(consumer, "entry.js"), [
     'import { createJsonLoader } from "subzerodev-data-json";',
     'import { defineSource, portfolioViewModelV1Contract, resolveSource, validatePortfolioViewModelV1 } from "subzerodev-platform-ui-portfolio";',

@@ -3,7 +3,7 @@ export class DataJsonAdapterError extends Error {
     super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = "DataJsonAdapterError";
     this.code = code;
-    this.sourceId = options.sourceId;
+    this.sourceId = options?.sourceId;
     if (options?.cause !== undefined) this.cause = options.cause;
   }
 }
@@ -50,14 +50,15 @@ export function createDataJsonProvider(options) {
   if (typeof options.id !== "string" || options.id.length === 0) throw new TypeError("createDataJsonProvider requires an explicit source id");
   if (!record(options.loader) || typeof options.loader.loadById !== "function") throw new TypeError("createDataJsonProvider requires an explicit loader");
   if (!validDescriptor(options.publicDescriptor)) throw new TypeError("createDataJsonProvider requires a safe public descriptor");
-  const { id, loader, publicDescriptor } = options;
+  const { id, loader } = options;
+  const publicDescriptor = Object.freeze(options.publicDescriptor.map((entry) => Object.freeze({ name: entry.name, value: entry.value })));
   return Object.freeze({
     kind: "data-json",
     publicDescriptor,
     resolve: () => load(loader, id),
     refresh: async () => {
       if (typeof loader.invalidate !== "function") throw new DataJsonAdapterError("data_json.refresh_unavailable", "Data.Json loader does not support invalidation", { sourceId: id });
-      loader.invalidate(id);
+      try { loader.invalidate(id); } catch (cause) { throw new DataJsonAdapterError("data_json.refresh_unavailable", "Data.Json invalidation failed", { sourceId: id, cause }); }
       return load(loader, id);
     },
   });

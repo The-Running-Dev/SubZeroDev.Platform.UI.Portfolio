@@ -105,6 +105,7 @@ export async function resolveSource(source, signal) {
   if (typeof provider !== "function") return fallback(definition, sourceError("source.refresh_unavailable", source.id, "Source refresh is unavailable"));
   let result;
   try { result = await provider(signal); } catch (cause) { return fallback(definition, sourceError("source.failed", source.id, "Source provider failed", { cause })); }
+  if (cancelled(signal)) return { status: "error", sourceId: source.id, error: sourceError("source.failed", source.id, "Source resolution was cancelled") };
   if (!result || !Array.isArray(result.metadata)) return fallback(definition, sourceError("source.failed", source.id, "Source provider returned an invalid result"));
   let raw;
   try { raw = definition.validateRaw(result.value); } catch (cause) { return fallback(definition, sourceError("consumer.validator_threw", source.id, "Consumer validation threw", { cause })); }
