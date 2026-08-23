@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { BuilderError, buildPortfolioSite, defineSource, validatePortfolioSiteConfigV1, validateProvenanceManifestV1 } from "../src/builder.js";
+import { BuilderError, buildPortfolioSite, checkPortfolioSite, defineSource, validatePortfolioSiteConfigV1, validateProvenanceManifestV1 } from "../src/builder.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const builderUrl = pathToFileURL(join(root, "src/builder.js")).href;
@@ -368,4 +368,61 @@ test("S15.6 a root-only fixture emits exactly one route and no consumer product 
   assert.deepEqual(record.routes, ["/"]);
   await assert.rejects(readFile(join(dir, "out/work/index.html")));
   assert.match(await readFile(join(dir, "out/index.html"), "utf8"), /szd-portfolio-overview/);
+});
+
+const checkGateIds = ["config", "provenance", "source_set", "route", "compile", "artifact"];
+
+test("S17.1 accepts no omitted or inferred check path", async (t) => {
+  const { dir } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  for (const paths of [{ configPath: "site.mjs" }, { rootDir: dir }, {}]) {
+    await assert.rejects(checkPortfolioSite(paths), (error) => error instanceof BuilderError && error.code === "config.invalid" && error.message === "Every check path is required");
+  }
+});
+
+test("S17.1 and S17.2 a clean fixture runs every named gate and reports all passed exactly once", async (t) => {
+  const { dir } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const before = await readFile(join(dir, "site.mjs"), "utf8");
+  const result = await checkPortfolioSite({ rootDir: dir, configPath: "site.mjs" });
+  assert.deepEqual(result.gates.map((gate) => gate.id), checkGateIds);
+  assert.ok(result.gates.every((gate) => gate.status === "passed"));
+  assert.match(result.record.artifactDigest, /^sha256:/);
+  assert.equal(await readFile(join(dir, "site.mjs"), "utf8"), before, "check never mutates the source repository");
+  await assert.rejects(readFile(join(dir, "out")), "check never creates the consumer's ordinary output");
+});
+
+test("S17.2 a failed gate reports check.failed with the complete gate list and no later gate attempted", async (t) => {
+  const { dir } = await fixture({ badConfig: true }); t.after(() => rm(dir, { recursive: true, force: true }));
+  await assert.rejects(checkPortfolioSite({ rootDir: dir, configPath: "site.mjs" }), (error) => {
+    assert.ok(error instanceof BuilderError);
+    assert.equal(error.code, "check.failed");
+    assert.deepEqual(error.gates.map((gate) => gate.id), checkGateIds);
+    assert.deepEqual(error.gates.map((gate) => gate.status), ["failed", "not-run", "not-run", "not-run", "not-run", "not-run"]);
+    return true;
+  });
+});
+
+test("S17.3 a fault injected during check's temporary writes leaves the production output and source repository byte-for-byte unchanged", async (t) => {
+  const { dir } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  const before = await readFile(join(dir, "out/.szd-portfolio-artifact.json"), "utf8");
+  const configBefore = await readFile(join(dir, "site.mjs"), "utf8");
+  process.env.SZD_PORTFOLIO_FAIL_AT = "write";
+  await assert.rejects(checkPortfolioSite({ rootDir: dir, configPath: "site.mjs" }), (error) => {
+    assert.ok(error instanceof BuilderError);
+    assert.equal(error.code, "check.failed");
+    assert.deepEqual(error.gates.map((gate) => gate.status), ["passed", "passed", "passed", "passed", "failed", "not-run"]);
+    return true;
+  });
+  delete process.env.SZD_PORTFOLIO_FAIL_AT;
+  assert.equal(await readFile(join(dir, "out/.szd-portfolio-artifact.json"), "utf8"), before);
+  assert.equal(await readFile(join(dir, "site.mjs"), "utf8"), configBefore);
+});
+
+test("S17.4 a clean fixture's check record matches an ordinary build of the same inputs", async (t) => {
+  const { dir } = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const built = await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  const checked = await checkPortfolioSite({ rootDir: dir, configPath: "site.mjs" });
+  assert.equal(checked.record.artifactDigest, built.record.artifactDigest);
+  assert.deepEqual(checked.record.files, built.record.files);
+  assert.deepEqual(checked.record.routes, built.record.routes);
 });

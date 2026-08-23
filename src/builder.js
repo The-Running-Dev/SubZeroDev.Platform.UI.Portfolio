@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { access, cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import React from "react";
@@ -220,6 +221,52 @@ async function verifyDeclaredFiles(root, config) {
   for (const asset of config.publicAssets) if (!(await regularContainedFile(root, asset.sourcePath))) throw new BuilderError("asset.invalid", "Declared public asset source is missing or not a regular contained file", { path: asset.sourcePath });
 }
 function styleHref(style) { return `/${style.kind === "portfolio-core" ? coreStylesheetOutput : style.outputPath}`; }
+
+async function resolveBuildSources(config) { const resolved = new Map(); for (const source of config.sources) if (source.timing === "build") resolved.set(source.id, await resolveBuildSource(source)); return resolved; }
+
+async function compileRoutes(config, resolved, target) {
+  const styleLinks = config.styles.map((style) => `<link rel="stylesheet" href="${styleHref(style)}">`).join("");
+  const sourcesById = new Map(config.sources.map((source) => [source.id, source]));
+  for (const route of config.routes) {
+    const required = route.requiredSourceIds.map((id) => sourcesById.get(id));
+    if (required.some((source) => source === undefined)) throw new BuilderError("route.invalid", "Route source is missing", { routePath: route.path });
+    const browserSources = required.filter((source) => source.timing === "browser");
+    const buildSources = required.filter((source) => source.timing === "build");
+    const mode = browserSources.length === 0 ? "build-only" : "browser-gated";
+    const modelVersions = required.map((source) => ({ sourceId: source.id, kind: sourceDefinition(source).viewModel.kind, version: 1 }));
+    const buildModels = buildSources.map((source) => {
+      const result = resolved.get(source.id);
+      if (!result) throw new BuilderError("route.invalid", "Build source is missing", { routePath: route.path, sourceId: source.id });
+      return result.fallbackError === undefined ? { sourceId: source.id, value: result.value } : { sourceId: source.id, value: result.value, fallbackError: { code: result.fallbackError.code, message: result.fallbackError.message, sourceId: result.fallbackError.sourceId, issues: result.fallbackError.issues } };
+    });
+    const bootstrap = { version: 1, routePath: route.path, mode, modelVersions, buildModels, browserSourceIds: browserSources.map((source) => source.id) };
+    let body;
+    if (mode === "browser-gated") body = renderToStaticMarkup(React.createElement("div", { className: "szd-portfolio-unresolved", "data-szd-portfolio-state": "unresolved" }));
+    else {
+      const sourceId = route.presentation.modelSourceId; const model = resolved.get(sourceId)?.value;
+      if (!model) throw new BuilderError("route.invalid", "Presentation source missing", { routePath: route.path, sourceId });
+      const Renderer = presentationRenderers[route.presentation.kind]; if (!Renderer) throw new BuilderError("route.invalid", "Unsupported presentation kind", { routePath: route.path });
+      const extraProps = route.presentation.kind === "projects" ? { query: defaultProjectsQuery } : {};
+      body = renderToStaticMarkup(React.createElement(Renderer, { model, ...extraProps }));
+    }
+    const html = `<!doctype html><html lang="${config.metadata.language ?? "en"}"><head><meta charset="utf-8"><title>${route.metadata?.title ?? config.metadata.title}</title>${styleLinks}</head><body>${body}<script type="application/json" id="szd-portfolio-bootstrap">${JSON.stringify(bootstrap).replaceAll("<", "\\u003c")}</script><script type="module" src="/${bootstrapScriptOutput}"></script></body></html>`;
+    await write(join(target, outputFile(route.path)), html);
+  }
+  await write(join(target, bootstrapScriptOutput), "export {};\n");
+}
+
+async function copyAssets(root, config, target) {
+  if (config.styles.some((style) => style.kind === "portfolio-core")) { const destination = join(target, coreStylesheetOutput); await mkdir(dirname(destination), { recursive: true }); await cp(stylesheetPath, destination); }
+  for (const style of config.styles) if (style.kind === "consumer-stylesheet") { const source = contained(root, style.sourcePath); const destination = join(target, style.outputPath); if (!source) throw new BuilderError("asset.invalid", "Style escapes root"); await mkdir(dirname(destination), { recursive: true }); await cp(source, destination); }
+  for (const asset of config.publicAssets) { const source = contained(root, asset.sourcePath); const destination = join(target, asset.outputPath); if (!source) throw new BuilderError("asset.invalid", "Asset escapes root"); await mkdir(dirname(destination), { recursive: true }); await cp(source, destination); }
+}
+
+function buildArtifactRecord(config, manifest, resolved, files) {
+  const built = { version: 1, artifactDigest: "", packageVersion: "0.0.0-development", provenanceManifestDigest: manifest.manifestDigest, configurationDigest: digest({ version: config.version, routes: config.routes.map((r) => r.path) }), routes: config.routes.map((r) => r.path), sources: config.sources.map((s) => ({ id: s.id, timing: s.timing, modelVersion: 1, status: resolved.get(s.id)?.status })), files };
+  built.artifactDigest = digest({ ...built, artifactDigest: "" });
+  return built;
+}
+
 export async function buildPortfolioSite(paths) {
   if (!paths?.rootDir || !paths?.configPath || !paths?.outDir) throw new BuilderError("config.invalid", "Every build path is required");
   const config = await loadPortfolioConfig(paths.rootDir, paths.configPath); const manifest = await provenance(); const root = resolve(paths.rootDir); const out = contained(root, paths.outDir); if (!out) throw new BuilderError("config.invalid", "Output escapes root");
@@ -229,41 +276,43 @@ export async function buildPortfolioSite(paths) {
   try { await access(lease); throw new BuilderError("lease.unavailable", "Writer lease unavailable", { path: lease }); } catch (error) { if (error instanceof BuilderError) throw error; }
   await writeFile(lease, canonical({ version: 1, operation: "build", normalizedTargetPath: out, ownerId: randomUUID() })); const staging = `${out}.staging-${randomUUID()}`; const previous = `${out}.previous-${randomUUID()}`;
   try {
-    const styleLinks = config.styles.map((style) => `<link rel="stylesheet" href="${styleHref(style)}">`).join("");
-    const resolved = new Map(); const sourcesById = new Map(config.sources.map((source) => [source.id, source])); for (const source of config.sources) if (source.timing === "build") resolved.set(source.id, await resolveBuildSource(source));
-    for (const route of config.routes) {
-      const required = route.requiredSourceIds.map((id) => sourcesById.get(id));
-      if (required.some((source) => source === undefined)) throw new BuilderError("route.invalid", "Route source is missing", { routePath: route.path });
-      const browserSources = required.filter((source) => source.timing === "browser");
-      const buildSources = required.filter((source) => source.timing === "build");
-      const mode = browserSources.length === 0 ? "build-only" : "browser-gated";
-      const modelVersions = required.map((source) => ({ sourceId: source.id, kind: sourceDefinition(source).viewModel.kind, version: 1 }));
-      const buildModels = buildSources.map((source) => {
-        const result = resolved.get(source.id);
-        if (!result) throw new BuilderError("route.invalid", "Build source is missing", { routePath: route.path, sourceId: source.id });
-        return result.fallbackError === undefined ? { sourceId: source.id, value: result.value } : { sourceId: source.id, value: result.value, fallbackError: { code: result.fallbackError.code, message: result.fallbackError.message, sourceId: result.fallbackError.sourceId, issues: result.fallbackError.issues } };
-      });
-      const bootstrap = { version: 1, routePath: route.path, mode, modelVersions, buildModels, browserSourceIds: browserSources.map((source) => source.id) };
-      let body;
-      if (mode === "browser-gated") body = renderToStaticMarkup(React.createElement("div", { className: "szd-portfolio-unresolved", "data-szd-portfolio-state": "unresolved" }));
-      else {
-        const sourceId = route.presentation.modelSourceId; const model = resolved.get(sourceId)?.value;
-        if (!model) throw new BuilderError("route.invalid", "Presentation source missing", { routePath: route.path, sourceId });
-        const Renderer = presentationRenderers[route.presentation.kind]; if (!Renderer) throw new BuilderError("route.invalid", "Unsupported presentation kind", { routePath: route.path });
-        const extraProps = route.presentation.kind === "projects" ? { query: defaultProjectsQuery } : {};
-        body = renderToStaticMarkup(React.createElement(Renderer, { model, ...extraProps }));
-      }
-      const html = `<!doctype html><html lang="${config.metadata.language ?? "en"}"><head><meta charset="utf-8"><title>${route.metadata?.title ?? config.metadata.title}</title>${styleLinks}</head><body>${body}<script type="application/json" id="szd-portfolio-bootstrap">${JSON.stringify(bootstrap).replaceAll("<", "\\u003c")}</script><script type="module" src="/${bootstrapScriptOutput}"></script></body></html>`;
-      await write(join(staging, outputFile(route.path)), html);
-    }
-    await write(join(staging, bootstrapScriptOutput), "export {};\n");
-    if (config.styles.some((style) => style.kind === "portfolio-core")) { const destination = join(staging, coreStylesheetOutput); await mkdir(dirname(destination), { recursive: true }); await cp(stylesheetPath, destination); }
-    for (const style of config.styles) if (style.kind === "consumer-stylesheet") { const source = contained(root, style.sourcePath); const destination = join(staging, style.outputPath); if (!source) throw new BuilderError("asset.invalid", "Style escapes root"); await mkdir(dirname(destination), { recursive: true }); await cp(source, destination); }
-    for (const asset of config.publicAssets) { const source = contained(root, asset.sourcePath); const destination = join(staging, asset.outputPath); if (!source) throw new BuilderError("asset.invalid", "Asset escapes root"); await mkdir(dirname(destination), { recursive: true }); await cp(source, destination); }
-    const files = await fileDigests(staging); const record = { version: 1, artifactDigest: "", packageVersion: "0.0.0-development", provenanceManifestDigest: manifest.manifestDigest, configurationDigest: digest({ version: config.version, routes: config.routes.map((r) => r.path) }), routes: config.routes.map((r) => r.path), sources: config.sources.map((s) => ({ id: s.id, timing: s.timing, modelVersion: 1, status: resolved.get(s.id)?.status })), files }; record.artifactDigest = digest({ ...record, artifactDigest: "" }); await write(join(staging, artifactName), canonical(record));
+    const resolved = await resolveBuildSources(config);
+    await compileRoutes(config, resolved, staging);
+    await copyAssets(root, config, staging);
+    const files = await fileDigests(staging); const record = buildArtifactRecord(config, manifest, resolved, files); await write(join(staging, artifactName), canonical(record));
     if (process.env.SZD_PORTFOLIO_FAIL_AT === "promotion") throw new Error("injected promotion failure"); let hadPrevious = false; try { await rename(out, previous); hadPrevious = true; } catch {} await rename(staging, out); if (hadPrevious) await rm(previous, { recursive: true, force: true }); return { artifactPath: out, record };
   } catch (cause) { const ambiguous = await stat(previous).then(() => true).catch(() => false); if (ambiguous) await writeFile(recovery, canonical({ version: 1, operation: "build", targetPath: out, stagingPath: staging, previousPath: previous, phase: "promotion-started" })); throw cause instanceof BuilderError ? cause : new BuilderError("promotion.failed", "Build failed", { cause });
   } finally { await rm(lease, { force: true }); await rm(staging, { recursive: true, force: true }); }
+}
+
+const checkGateIds = ["config", "provenance", "source_set", "route", "compile", "artifact"];
+function gateDetail(cause) { return cause instanceof Error ? cause.message : String(cause); }
+
+export async function checkPortfolioSite(paths) {
+  if (!paths?.rootDir || !paths?.configPath) throw new BuilderError("config.invalid", "Every check path is required");
+  const root = resolve(paths.rootDir);
+  const target = join(tmpdir(), `szd-portfolio-check-${randomUUID()}`);
+  const gates = new Map(checkGateIds.map((id) => [id, { id, status: "not-run" }]));
+  const orderedGates = () => checkGateIds.map((id) => gates.get(id));
+  async function gate(id, run) {
+    try { const value = await run(); gates.set(id, { id, status: "passed" }); return value; }
+    catch (cause) { gates.set(id, { id, status: "failed", detail: gateDetail(cause) }); throw new BuilderError("check.failed", "One or more check gates failed", { gates: orderedGates(), cause }); }
+  }
+  try {
+    const config = await gate("config", () => loadPortfolioConfig(paths.rootDir, paths.configPath));
+    const manifest = await gate("provenance", () => provenance());
+    const resolved = await gate("source_set", () => resolveBuildSources(config));
+    await gate("route", () => verifyDeclaredFiles(root, config));
+    await gate("compile", async () => { await compileRoutes(config, resolved, target); await copyAssets(root, config, target); });
+    const record = await gate("artifact", async () => {
+      const files = await fileDigests(target);
+      const candidate = buildArtifactRecord(config, manifest, resolved, files);
+      const verified = validateArtifactRecordV1(candidate);
+      if (!verified.ok || candidate.artifactDigest !== digest({ ...candidate, artifactDigest: "" })) throw new BuilderError("artifact.invalid", "Artifact record failed verification", { issues: verified.ok ? [] : verified.issues });
+      return candidate;
+    });
+    return { record, gates: orderedGates() };
+  } finally { await rm(target, { recursive: true, force: true }); }
 }
 
 export function validateArtifactRecordV1(input) { return record(input) && input.version === 1 && typeof input.artifactDigest === "string" && Array.isArray(input.files) ? { ok: true, value: input } : { ok: false, issues: [issue("artifact.invalid", [])] }; }
