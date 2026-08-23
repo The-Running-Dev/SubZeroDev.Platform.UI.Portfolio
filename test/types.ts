@@ -2,8 +2,11 @@ import type {
   LinkCapabilityV1,
   PortfolioProps,
   PortfolioViewModelV1,
+  SourceProviderCapability,
   ValidationResult,
 } from "subzerodev-platform-ui-portfolio";
+import type { DataJsonSourceOptions } from "subzerodev-platform-ui-portfolio/data-json";
+import type { JsonLoader } from "subzerodev-data-json";
 
 declare const link: LinkCapabilityV1;
 declare const model: PortfolioViewModelV1;
@@ -21,6 +24,14 @@ if (result.ok === true) {
   const code: string = result.issues[0]?.code ?? "";
   void code;
 }
+
+declare const loader: JsonLoader;
+declare const dataJsonOptions: DataJsonSourceOptions;
+const boundLoader: JsonLoader = dataJsonOptions.loader;
+void loader;
+void boundLoader;
+const capability: SourceProviderCapability = { kind: "data-json", publicDescriptor: [], resolve: async () => ({ value: null, metadata: [] }) };
+void capability;
 
 void href;
 void title;

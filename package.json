@@ -16,6 +16,10 @@
     "./browser": {
       "types": "./src/browser.d.ts",
       "default": "./src/browser.js"
+    },
+    "./data-json": {
+      "types": "./src/data-json.d.ts",
+      "default": "./src/data-json.js"
     }
   },
   "bin": {
@@ -29,13 +33,24 @@
   ],
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
-    "react-dom": "^18.0.0 || ^19.0.0"
+    "react-dom": "^18.0.0 || ^19.0.0",
+    "subzerodev-data-json": "^0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "subzerodev-data-json": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "subzerodev-data-json": "^0.2.0"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "check": "node --check src/index.js && node --test test/*.test.mjs && npm run typecheck",
     "pack:check": "npm pack --dry-run",
-    "typecheck": "npx --yes --package typescript@5.9.3 tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 test/types.ts"
+    "typecheck": "npx --yes --package typescript@5.9.3 tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,ESNext.Disposable,DOM test/types.ts"
   },
   "engines": {
     "node": ">=18"
