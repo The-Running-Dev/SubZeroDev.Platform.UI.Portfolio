@@ -53,3 +53,45 @@ test("S11.1 CLI rejects an unknown command with usage", async () => {
     (error) => error.code === 1 && /^usage: /.test(error.stderr),
   );
 });
+
+test("S17.1 and S17.5 CLI check --root <path> --config <path> reports one concise success line without an --out-dir", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const { stdout } = await execFileAsync(process.execPath, [cliPath, "check", "--root", dir, "--config", "site.mjs"]);
+  assert.match(stdout, /^check sha256:\S+\n$/);
+  await assert.rejects(readFile(join(dir, "out")));
+});
+
+test("S17.2 and S17.5 CLI check reports ordered redacted gate diagnostics to stderr on failure", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-cli-check-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const config = `import { definePortfolioSite, defineSource } from ${JSON.stringify(builderUrl)};
+export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: "/work", metadata: { title: "Route" }, presentation: { kind: "portfolio", modelSourceId: "missing" }, requiredSourceIds: ["missing"] }], sources: [], styles: [], navigation: [], publicAssets: [] });`;
+  await writeFile(join(dir, "site.mjs"), config);
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "check", "--root", dir, "--config", "site.mjs"]),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /^check\.failed: /);
+      assert.match(error.stderr, /config: failed/);
+      assert.match(error.stderr, /provenance: not-run/);
+      assert.doesNotMatch(error.stderr, /missing/);
+      return true;
+    },
+  );
+});
+
+test("S17.1 and S17.5 CLI check rejects an omitted --config without mutating the source repository", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "check", "--root", dir]),
+    (error) => error.code === 1 && /^config\.invalid: Every check path is required/.test(error.stderr),
+  );
+  await assert.rejects(readFile(join(dir, "out")));
+});
+
+test("S17.5 CLI check --help prints usage without loading configuration", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "help"]),
+    (error) => error.code === 1 && /^usage: /.test(error.stderr),
+  );
+});
