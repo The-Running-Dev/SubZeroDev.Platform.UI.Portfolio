@@ -632,4 +632,25 @@ break under P16.
 
 ## Open
 
-None.
+### 2026-08-23 — Data.Json 0.2.0 cannot install beside React 19
+
+Found while reviewing S16. `subzerodev-data-json@0.2.0` declares an optional
+`react` peer of `^18.3.0`, and npm enforces an optional peer whenever the
+package is present in the tree. Installing it beside this package on React 19
+therefore fails with `ERESOLVE`, and only `--legacy-peer-deps` or `--force`
+gets past it. Reproduced against `react@19.2.8` and `react-dom@19.2.8`.
+
+This package advertises React `^18.0.0 || ^19.0.0`, and the contract makes the
+Data.Json range a release input verified against installed declarations and
+packed fixtures. Both cannot hold at once, so the `./data-json` entrypoint is
+in practice React 18 only until the upstream peer range widens.
+
+The S16 packed fixture originally passed `--legacy-peer-deps`, which hid this
+entirely; it is now pinned to React 18.3.1 so the install it verifies is
+genuinely peer-clean. That made the fixture honest without removing the
+constraint.
+
+Needs a decision before the first release: widen the peer range in the
+Data.Json repository, narrow the React range this package advertises, or state
+the combination as React 18 only. The middle option changes a compatibility
+promise and belongs to `/contract`.
