@@ -437,188 +437,6 @@ slices under `## Outstanding`; it never rewrites a landed row or reuses an id.
 
 ## Outstanding
 
-## S10 — Render a validated Portfolio overview from the packed root
-
-Delivers: A React application author can install the package and render a
-Portfolio overview from validated data without bringing a site framework or
-builder runtime into the application.
-
-Touches: contracts and validation, Portfolio view model, deterministic
-selectors, pure React presentation, namespaced styles, root package export,
-packed-consumer fixtures
-
-Depends on: none
-
-Acceptance:
-
-- S10.1 A packed consumer with only the contracted React peers imports the root,
-  validates a minimal and a representative complete Portfolio model, and
-  server-renders `szd-portfolio-overview` under both supported React majors.
-- S10.2 The Portfolio validator accepts `unknown`, rejects every contracted
-  empty, duplicate, inconsistent, non-finite, unsupported-version, and
-  unknown-field branch, and preserves deterministic issue paths and order.
-- S10.3 Portfolio selectors return equal results for equal inputs, do not mutate
-  their inputs, and emit no destination for a technology or project whose link
-  capability has no `href`.
-- S10.4 Ordinary strings containing markup render as escaped text, and a
-  Portfolio model with no cross-route destination emits no `/projects`, `/cv`,
-  `/docs`, demo, repository, or admin anchor.
-- S10.5 Complete parsed DOM and CSS manifests contain only the contracted
-  `szd-portfolio-`, `--szd-portfolio-`, and `data-szd-portfolio-` owned names;
-  importing JavaScript does not load CSS.
-- S10.6 The packed root imports, bundles, and server-renders with Node, Vite,
-  Data.Json, and browser globals absent or poisoned.
-
-Out of scope: CV, Projects, site chrome, browser effects, source providers, and
-builder commands.
-
-## S11 — Produce one crash-safe static Portfolio artifact
-
-Delivers: A site maintainer can give the builder one explicit configuration and
-receive a verified static Portfolio route without risking the last successful
-artifact when a new build fails.
-
-Touches: configuration declaration, Node configuration loader, provenance
-verifier, resolution kernel, source orchestrator, route planner, document
-compiler, artifact writer, build command, artifact and recovery records
-
-Depends on: S10
-
-Acceptance:
-
-- S11.1 `build --root <path> --config <path> --out-dir <path>` accepts no omitted
-  or inferred path, loads exactly one version-one configuration, and rejects
-  invalid declarations and cross-references before source I/O or output
-  mutation.
-- S11.2 A fixture declaring one build-timed Portfolio source and one explicit
-  route produces exactly that route's static document, contracted browser
-  assets, declared styles and assets, and a version-one artifact record; a
-  fixture that omits `/` emits no root document.
-- S11.3 Call-order spies prove provider resolution, consumer raw validation,
-  projection, package view validation, complete-set composition, and rendering
-  occur in that order, and no later step runs after an earlier rejection.
-- S11.4 The tracked three-role provenance manifest validates its immutable
-  commits or image digest, ordered overlay rules, file digests, clean-tree
-  evidence, canonical digest, and fixture binding; a normal build succeeds with
-  evidence-network access poisoned.
-- S11.5 Build writes and verifies a sibling staging tree under one writer lease
-  before promotion; injected failure at each write and promotion boundary
-  leaves the previous artifact byte-for-byte unchanged or writes a recovery
-  record naming every tree whose authority is ambiguous.
-- S11.6 A second writer is refused while the lease is held, an unresolved
-  recovery record blocks later writers, and neither state is deleted without
-  the contracted ownership or adjudication proof.
-- S11.7 Artifact canonicalization is stable across repeated identical builds,
-  sorts emitted files by normalized output path, and records no raw payload,
-  function, credential, request header, or private provider description.
-
-Out of scope: browser-timed sources, CV and Projects documents, check, dev,
-preview, merge, workflow delivery, publication, and deployment.
-
-## S12 — Hydrate browser-timed routes without exposing partial data
-
-Delivers: A site author can use browser-fresh Portfolio data while visitors see
-matching server and first-client markup and never see a route composed from a
-partial source set.
-
-Touches: browser bootstrap record, browser integration, browser source gate,
-resolution kernel, document compiler, build command
-
-Depends on: S11
-
-Acceptance:
-
-- S12.1 A browser-gated route server-renders the deterministic unresolved
-  boundary and serializes only its route identity, model versions, validated
-  build models, fallback diagnostics, and declared browser source ids.
-- S12.2 The client validates the bootstrap and settles every required browser
-  source before hydration, hydrates the same unresolved boundary, and publishes
-  exactly one `ready`, `fallback`, or `error` result after the hydration commit.
-- S12.3 Out-of-order source completion yields declaration-ordered results and
-  errors, and a composition spy receives either the entire validated set or no
-  invocation.
-- S12.4 An invalid primary value, thrown consumer validator, thrown projection,
-  invalid fallback, and provider failure each produce the contracted typed
-  error without raw rejected data in the bootstrap, DOM, or diagnostic text.
-- S12.5 Reversed refresh completions prove only the newest generation publishes;
-  disposal prevents every later publication and releases subscriptions.
-- S12.6 Browser entrypoint import and server rendering succeed with `window`,
-  `document`, `location`, and storage absent or poisoned.
-
-Out of scope: Data.Json translation, saved presentation preferences, Projects
-URL state, and development regeneration.
-
-## S13 — Render the complete non-Projects presentation surface
-
-Delivers: A React application author can render the Portfolio masthead, CV,
-version display, and supporting content with the same validation, route-safety,
-and framework independence as the overview.
-
-Touches: site chrome, CV, version-display view models and validators, CV
-selectors, pure React presentation, namespaced styles, root exports, document
-compiler
-
-Depends on: S10, S11
-
-Acceptance:
-
-- S13.1 Every newly exported version-one validator accepts minimal and complete
-  valid fixtures and rejects every branch in its recorded rejection matrix,
-  including unknown fields, duplicate ids, invalid links, and inconsistent CV
-  periods.
-- S13.2 Site chrome renders absent destinations as inert content and emits a
-  non-root anchor only when the consumer supplied that exact destination.
-- S13.3 CV ordinary strings containing markup are escaped; only a matching
-  declared rich-text slot renders caller-supplied React content, and a missing
-  slot never falls back to raw HTML.
-- S13.4 Two instances of site chrome, CV, and version display produce no
-  package-owned duplicate id, and representative keyboard and accessibility
-  checks report no violations.
-- S13.5 Version output is identical under different clocks, locales, and
-  timezones when its explicit model is unchanged.
-- S13.6 Explicit CV and Portfolio route fixtures build through the single
-  document compiler, while undeclared route kinds and destinations emit no
-  document or anchor.
-
-Out of scope: Projects browsing, text-size and reader-mode state, consumer icon
-libraries, and disabled baseline features.
-
-## S14 — Browse Projects with controlled preferences
-
-Delivers: A visitor can search, filter, sort, and browse Projects and can change
-text size or reader mode through accessible controls whose state remains owned
-by the consuming site.
-
-Touches: Projects, text-size, and reader-mode view models and validators,
-Projects selectors, pure React presentation, browser preference and URL
-controllers, namespaced styles, document compiler
-
-Depends on: S12, S13
-
-Acceptance:
-
-- S14.1 Projects validation rejects unknown fields, duplicate ids, missing
-  category or sort references, inconsistent periods, and non-finite values;
-  every rejection branch and valid minimal, empty, and complete fixture is
-  exercised.
-- S14.2 Fixed model and query inputs produce an exact, stable filtered and
-  sorted project order without mutating the model or reading a clock, locale,
-  location, storage, or feature flag.
-- S14.3 Search, filter, sort, navigation, text-size, and reader-mode controls are
-  keyboard operable and expose accessible names, focus order, and current state
-  through contracted package-prefixed attributes.
-- S14.4 URL, storage, and DOM ports are caller-supplied; unknown saved choices
-  and throwing ports retain the declared first-render default and produce only
-  the contracted optional diagnostics after hydration.
-- S14.5 Two simultaneous Projects and preference-control instances have no
-  package-owned id, storage-key, subscription, or DOM-state collision.
-- S14.6 Source and export-graph checks contain no admin, edit, authentication,
-  API mutation, storage implementation, drag/drop, audit, Docusaurus, or Infima
-  dependency.
-
-Out of scope: Projects administration, package-owned storage keys, implicit
-routes, history monkey-patching, DOM polling, and theme switching.
-
 ## S15 — Plan every declared route, style, and public asset
 
 Delivers: A site maintainer can build a root-only site or the full declared
@@ -653,37 +471,6 @@ Acceptance:
 
 Out of scope: arbitrary Vite plugins, inferred routers, inherited template
 pages, host defaults, and deployment policy.
-
-## S16 — Resolve declared sources through Data.Json
-
-Delivers: A Data.Json consumer can use its own loader and source identifiers for
-build-time and browser-time Portfolio data without giving the package a global
-loader, generated source map, or cache policy.
-
-Touches: Data.Json integration, source provider capability, resolution kernel,
-source orchestrator, browser source gate, data-json package export
-
-Depends on: S12, S15
-
-Acceptance:
-
-- S16.1 `createDataJsonProvider` requires one explicit loader, source id, and
-  safe public descriptor, and a packed consumer resolves that id without any
-  generated source map or singleton import.
-- S16.2 Successful Data.Json values cross consumer validation, projection, and
-  package validation exactly once before either build composition or browser
-  publication.
-- S16.3 Unresolved id, load failure, unavailable refresh, and invalid metadata
-  produce their exact contracted codes and retain safe causes without copying
-  private metadata or payloads.
-- S16.4 Refresh invalidates and reloads only the declared id through the supplied
-  loader; cancellation suppresses publication without claiming the provider
-  request was aborted.
-- S16.5 Root, builder, and browser packed fixtures install and run with Data.Json
-  absent, and the Data.Json dependency is reachable only from `./data-json`.
-
-Out of scope: loader construction, retry, source-map discovery, cache policy,
-hard-coded source ids, and consumer raw schemas.
 
 ## S17 — Check a site without replacing its artifact
 
@@ -845,4 +632,15 @@ repository modification, and default-branch merge.
 
 ## Landed
 
-None.
+- **S10** — Render a validated Portfolio overview from the packed root. Issue #3.
+  Criteria S10.1–S10.6. Landed at `e48754f5a0af7ae850efa726797fb649ccc47a54`.
+- **S11** — Produce one crash-safe static Portfolio artifact. Issue #4.
+  Criteria S11.1–S11.7. Landed at `ffd676d2f79cecce9188dbdf190f0f108c6d9af9`.
+- **S12** — Hydrate browser-timed routes without exposing partial data. Issue #5.
+  Criteria S12.1–S12.6. Landed at `2bcad9d53433ddbed9031db4df73fb6d7947da58`.
+- **S13** — Render the complete non-Projects presentation surface. Issue #6.
+  Criteria S13.1–S13.6. Landed at `9b0ca0a9e48360ec3459055487f25644f466358f`.
+- **S14** — Browse Projects with controlled preferences. Issue #7.
+  Criteria S14.1–S14.6. Landed at `3f20ed8153c6cd354cd0e6db0711938ef2c441af`.
+- **S16** — Resolve declared sources through Data.Json. Issue #9.
+  Criteria S16.1–S16.5. Landed at `e2fdd0f196f35a8092a156024892317db0d52097`.
