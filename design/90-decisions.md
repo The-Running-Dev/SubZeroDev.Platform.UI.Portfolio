@@ -630,6 +630,26 @@ Reversibility: moderate. Adding more recognized sort ids later is additive;
 changing "newest"'s or "title"'s ordering after a release is a compatibility
 break under P16.
 
+### 2026-08-23 — Kit sync 9911712: adopt two upstream AGENTS.md changes verbatim
+
+Context: `/kit-sync` fast-forwarded `~/.agent-kit` from `ba2fe6e` (2026-08-21) to
+`9911712` (2026-08-22), 11 commits. Diffing the kit's `AGENTS.md` at both shas
+isolated exactly two upstream changes not yet present in this repository's copy
+(the rest of the byte-diff was this repository's own pre-existing project
+content, already reconciled at the 2026-08-20 install).
+
+Chosen: add the `/install-code-review-agent` row to the Command routing table,
+and update the PR-opening carve-out sentence to name `/install` and `/kit-sync`
+(via `INSTALL.md` phase 4 step 8) and exclude `/install-all`, matching the
+kit's current wording verbatim.
+
+Rejected: **skip either change** — both reflect real upstream behavior (a new
+command, and this very sync command now opening PRs), so skipping would leave
+the contract silently stale rather than deliberately customized.
+
+Reversibility: cheap. Both are additive/textual with no dependents elsewhere
+in this file.
+
 ## Open
 
 ### 2026-08-23 — Data.Json 0.2.0 cannot install beside React 19
