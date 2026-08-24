@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { buildPortfolioSite, checkPortfolioSite, startPortfolioDevServer } from "./builder.js";
+import { buildPortfolioSite, checkPortfolioSite, previewPortfolioSite, startPortfolioDevServer } from "./builder.js";
 
 const usage = "usage: subzerodev-platform-ui-portfolio build --root <path> --config <path> --out-dir <path>\n"
   + "       subzerodev-platform-ui-portfolio check --root <path> --config <path>\n"
-  + "       subzerodev-platform-ui-portfolio dev --root <path> --config <path> --out-dir <path> --host <host> --port <port>\n";
+  + "       subzerodev-platform-ui-portfolio dev --root <path> --config <path> --out-dir <path> --host <host> --port <port>\n"
+  + "       subzerodev-platform-ui-portfolio preview --root <path> --config <path> --out-dir <path> --host <host> --port <port>\n";
 
 function fail(message) { process.stderr.write(message); process.exitCode = 1; }
 
@@ -42,6 +43,16 @@ if (parseFailed) {
     process.stdout.write(`dev http://${server.address.host}:${server.address.port}\n`);
   } catch (error) {
     fail(`${error.code ?? "dev.failed"}: ${error.message}\n`);
+  }
+} else if (command === "preview") {
+  try {
+    const server = await previewPortfolioSite(
+      { rootDir: values.root, configPath: values.config, outDir: values["out-dir"] },
+      { host: values.host, port: values.port === undefined ? undefined : Number(values.port) },
+    );
+    process.stdout.write(`preview http://${server.address.host}:${server.address.port}\n`);
+  } catch (error) {
+    fail(`${error.code ?? "preview.failed"}: ${error.message}\n`);
   }
 } else {
   fail(usage);

@@ -438,5 +438,28 @@ export async function startPortfolioDevServer(paths, address) {
   return { address: { host: address.host, port: bound && typeof bound === "object" ? bound.port : address.port }, close };
 }
 
+export async function previewPortfolioSite(paths, address) {
+  if (!paths?.rootDir || !paths?.configPath || !paths?.outDir) throw new BuilderError("config.invalid", "Every preview path is required");
+  if (!address?.host || typeof address?.port !== "number") throw new BuilderError("config.invalid", "Every preview address value is required");
+  const built = await buildPortfolioSite(paths);
+
+  const server = createServer((req, res) => { respondFromRoot(built.artifactPath, req.url, res).catch(() => { try { res.writeHead(500); res.end(); } catch {} }); });
+  await new Promise((resolveBind, rejectBind) => {
+    const onError = (cause) => { server.removeListener("listening", onListening); server.close(() => {}); rejectBind(new BuilderError("server.bind_failed", "Preview server failed to bind", { cause })); };
+    const onListening = () => { server.removeListener("error", onError); resolveBind(); };
+    server.once("error", onError); server.once("listening", onListening);
+    server.listen(address.port, address.host);
+  });
+
+  async function close() {
+    const stopped = new Promise((resolveClose) => server.close(() => resolveClose()));
+    server.closeAllConnections();
+    await stopped;
+  }
+
+  const bound = server.address();
+  return { address: { host: address.host, port: bound && typeof bound === "object" ? bound.port : address.port }, close };
+}
+
 export function validateArtifactRecordV1(input) { return record(input) && input.version === 1 && typeof input.artifactDigest === "string" && Array.isArray(input.files) ? { ok: true, value: input } : { ok: false, issues: [issue("artifact.invalid", [])] }; }
 export function validateRecoveryRecordV1(input) { return record(input) && input.version === 1 && input.operation === "build" ? { ok: true, value: input } : { ok: false, issues: [issue("recovery.invalid", [])] }; }
