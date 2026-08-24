@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { buildPortfolioSite, checkPortfolioSite } from "./builder.js";
+import { buildPortfolioSite, checkPortfolioSite, startPortfolioDevServer } from "./builder.js";
 
 const usage = "usage: subzerodev-platform-ui-portfolio build --root <path> --config <path> --out-dir <path>\n"
-  + "       subzerodev-platform-ui-portfolio check --root <path> --config <path>\n";
+  + "       subzerodev-platform-ui-portfolio check --root <path> --config <path>\n"
+  + "       subzerodev-platform-ui-portfolio dev --root <path> --config <path> --out-dir <path> --host <host> --port <port>\n";
 
 function fail(message) { process.stderr.write(message); process.exitCode = 1; }
 
@@ -31,6 +32,16 @@ if (parseFailed) {
     let message = `${error.code ?? "check.failed"}: ${error.message}\n`;
     for (const gate of error.gates ?? []) message += `  ${gate.id}: ${gate.status}${gate.detail ? ` (${gate.detail})` : ""}\n`;
     fail(message);
+  }
+} else if (command === "dev") {
+  try {
+    const server = await startPortfolioDevServer(
+      { rootDir: values.root, configPath: values.config, outDir: values["out-dir"] },
+      { host: values.host, port: values.port === undefined ? undefined : Number(values.port) },
+    );
+    process.stdout.write(`dev http://${server.address.host}:${server.address.port}\n`);
+  } catch (error) {
+    fail(`${error.code ?? "dev.failed"}: ${error.message}\n`);
   }
 } else {
   fail(usage);

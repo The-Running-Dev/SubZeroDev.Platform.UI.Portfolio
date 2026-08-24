@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { BuilderError, buildPortfolioSite, checkPortfolioSite, defineSource, validatePortfolioSiteConfigV1, validateProvenanceManifestV1 } from "../src/builder.js";
+import { BuilderError, buildPortfolioSite, checkPortfolioSite, defineSource, startPortfolioDevServer, validatePortfolioSiteConfigV1, validateProvenanceManifestV1 } from "../src/builder.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const builderUrl = pathToFileURL(join(root, "src/builder.js")).href;
@@ -425,4 +427,161 @@ test("S17.4 a clean fixture's check record matches an ordinary build of the same
   assert.equal(checked.record.artifactDigest, built.record.artifactDigest);
   assert.deepEqual(checked.record.files, built.record.files);
   assert.deepEqual(checked.record.routes, built.record.routes);
+});
+
+function devConfigSource(title, extra = "") {
+  return `import { definePortfolioSite, defineSource } from ${JSON.stringify(builderUrl)};
+const source = defineSource({ id: "portfolio", timing: "build", provider: { kind: "fixture", publicDescriptor: [], resolve: async () => { ${extra}
+  return { value: ${JSON.stringify(model)}, metadata: [] };
+} }, validateRaw: (value) => ({ ok: true, value }), project: (value) => value, viewModel: { kind: "portfolio", validate: (value) => value && value.version === 1 ? { ok: true, value } : { ok: false, issues: [] } } });
+export default definePortfolioSite({ version: 1, metadata: { title: ${JSON.stringify(title)} }, routes: [{ path: "/", metadata: { title: ${JSON.stringify(title)} }, presentation: { kind: "portfolio", modelSourceId: "portfolio" }, requiredSourceIds: ["portfolio"] }], sources: [source], styles: [], navigation: [], publicAssets: [] });`;
+}
+
+async function devFixture(title = "Initial") {
+  const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-devsite-"));
+  await writeFile(join(dir, "site.mjs"), devConfigSource(title));
+  return dir;
+}
+
+async function fetchText(address, path) {
+  const response = await fetch(`http://${address.host}:${address.port}${path}`);
+  return { status: response.status, body: await response.text() };
+}
+
+async function waitFor(check, { timeout = 4000, interval = 20 } = {}) {
+  const deadline = Date.now() + timeout;
+  let lastError;
+  while (Date.now() < deadline) {
+    try { const result = await check(); if (result) return result; } catch (error) { lastError = error; }
+    await delay(interval);
+  }
+  throw lastError ?? new Error("waitFor timed out");
+}
+
+async function freePort() {
+  const probe = createServer();
+  await new Promise((resolveListen) => probe.listen(0, "127.0.0.1", resolveListen));
+  const port = probe.address().port;
+  await new Promise((resolveClose) => probe.close(resolveClose));
+  return port;
+}
+
+test("S18.1 requires every dev path and address value", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const paths = { rootDir: dir, configPath: "site.mjs", outDir: "out" };
+  const address = { host: "127.0.0.1", port: 0 };
+  const cases = [
+    [{ configPath: "site.mjs", outDir: "out" }, address],
+    [{ rootDir: dir, outDir: "out" }, address],
+    [{ rootDir: dir, configPath: "site.mjs" }, address],
+    [paths, { port: 0 }],
+    [paths, { host: "127.0.0.1" }],
+    [{}, {}],
+  ];
+  for (const [givenPaths, givenAddress] of cases) {
+    await assert.rejects(startPortfolioDevServer(givenPaths, givenAddress), (error) => error instanceof BuilderError && error.code === "config.invalid");
+  }
+  await assert.rejects(readFile(join(dir, "out")));
+});
+
+test("S18.1 binds only after configuration, provenance, and initial build-source resolution succeed", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const port = await freePort();
+  const address = { host: "127.0.0.1", port };
+
+  await writeFile(join(dir, "site.mjs"), `import { definePortfolioSite } from ${JSON.stringify(builderUrl)};
+export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: "/", metadata: { title: "Root" }, presentation: { kind: "portfolio", modelSourceId: "missing" }, requiredSourceIds: ["missing"] }], sources: [], styles: [], navigation: [], publicAssets: [] });`);
+  await assert.rejects(startPortfolioDevServer({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, address), (error) => error instanceof BuilderError && error.code === "config.load_failed");
+
+  await writeFile(join(dir, "site.mjs"), devConfigSource("Initial", "throw new Error('boom');"));
+  await assert.rejects(startPortfolioDevServer({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, address), (error) => error instanceof BuilderError && error.code === "source_set.failed");
+
+  const probe = createServer();
+  await new Promise((resolveListen, rejectListen) => { probe.once("error", rejectListen); probe.listen(port, "127.0.0.1", resolveListen); });
+  await new Promise((resolveClose) => probe.close(resolveClose));
+});
+
+test("S18.2 coalesces a burst of changes into one further generation, running one at a time, and the last change wins", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-devsite-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  const configPath = join(dir, "site.mjs");
+  const trackingProvider = `globalThis.__szdDevActive = (globalThis.__szdDevActive ?? 0) + 1;
+  if (globalThis.__szdDevActive > 1) globalThis.__szdDevOverlap = true;
+  globalThis.__szdDevCalls = (globalThis.__szdDevCalls ?? 0) + 1;
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 150));
+  globalThis.__szdDevActive -= 1;`;
+  await writeFile(configPath, devConfigSource("Initial", trackingProvider));
+  globalThis.__szdDevCalls = 0; globalThis.__szdDevActive = 0; globalThis.__szdDevOverlap = false;
+  const server = await startPortfolioDevServer({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, { host: "127.0.0.1", port: 0 });
+  t.after(() => server.close());
+  await waitFor(async () => (await fetchText(server.address, "/")).body.includes("Initial"));
+  assert.equal(globalThis.__szdDevCalls, 1);
+
+  for (const title of ["Burst-1", "Burst-2", "Burst-3", "Burst-4", "Final"]) {
+    await writeFile(configPath, devConfigSource(title, trackingProvider));
+    await delay(5);
+  }
+  await waitFor(async () => (await fetchText(server.address, "/")).body.includes("Final"), { timeout: 5000 });
+  assert.equal(globalThis.__szdDevOverlap, false, "no two generations ran concurrently");
+  assert.ok(globalThis.__szdDevCalls < 6, `expected the burst to be coalesced, got ${globalThis.__szdDevCalls} generations`);
+  delete globalThis.__szdDevCalls; delete globalThis.__szdDevActive; delete globalThis.__szdDevOverlap;
+});
+
+test("S18.3 a failing generation is visible through the development error surface and the last complete generation remains served", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const server = await startPortfolioDevServer({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, { host: "127.0.0.1", port: 0 });
+  t.after(() => server.close());
+  const before = await waitFor(async () => { const response = await fetchText(server.address, "/"); return response.body.includes("Initial") ? response : undefined; });
+
+  const originalWrite = process.stderr.write;
+  const messages = [];
+  process.stderr.write = (chunk, ...rest) => { messages.push(String(chunk)); return originalWrite.call(process.stderr, chunk, ...rest); };
+  try {
+    await writeFile(join(dir, "site.mjs"), `import { definePortfolioSite } from ${JSON.stringify(builderUrl)};
+export default definePortfolioSite({ version: 1, metadata: { title: "Broken" }, routes: [], sources: [], styles: [], navigation: [], publicAssets: [] });`);
+    await waitFor(() => messages.some((message) => message.includes("generation failed")));
+  } finally { process.stderr.write = originalWrite; }
+
+  const after = await fetchText(server.address, "/");
+  assert.equal(after.body, before.body, "the last complete generation keeps being served");
+  assert.equal(after.status, 200);
+});
+
+test("S18.4 production and development fixtures produce byte-equivalent route documents and bootstrap records", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const built = await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" });
+  const expectedHtml = await readFile(join(dir, "out/index.html"), "utf8");
+  const expectedBootstrap = await readFile(join(dir, "out/assets/szd-portfolio-bootstrap.js"), "utf8");
+  assert.deepEqual(built.record.routes, ["/"]);
+
+  const server = await startPortfolioDevServer({ rootDir: dir, configPath: "site.mjs", outDir: "dev-out" }, { host: "127.0.0.1", port: 0 });
+  t.after(() => server.close());
+  const html = await waitFor(async () => { const response = await fetchText(server.address, "/"); return response.body.length > 0 ? response : undefined; });
+  assert.equal(html.body, expectedHtml);
+  const bootstrap = await fetchText(server.address, "/assets/szd-portfolio-bootstrap.js");
+  assert.equal(bootstrap.body, expectedBootstrap);
+  await assert.rejects(readFile(join(dir, "dev-out")), "dev never writes the consumer's ordinary output");
+});
+
+test("S18.5 closing releases watchers, sockets, and staging state without touching recovery state", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const stagingPrefix = "szd-portfolio-dev-";
+  const before = (await readdir(tmpdir())).filter((name) => name.startsWith(stagingPrefix)).length;
+
+  const server = await startPortfolioDevServer({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, { host: "127.0.0.1", port: 0 });
+  await waitFor(async () => (await fetchText(server.address, "/")).body.includes("Initial"));
+  const during = (await readdir(tmpdir())).filter((name) => name.startsWith(stagingPrefix)).length;
+  assert.ok(during > before, "an in-flight generation leaves staging state in the temp directory");
+
+  const { host, port } = server.address;
+  await server.close();
+  const after = (await readdir(tmpdir())).filter((name) => name.startsWith(stagingPrefix)).length;
+  assert.equal(after, before, "closing removes every staging directory this instance created");
+
+  await assert.rejects(readFile(join(dir, "out")));
+  await assert.rejects(readFile(join(dir, "out.lease.json")));
+  await assert.rejects(readFile(join(dir, "out.recovery.json")));
+
+  const probe = createServer();
+  await new Promise((resolveListen, rejectListen) => { probe.once("error", rejectListen); probe.listen(port, host, resolveListen); });
+  await new Promise((resolveClose) => probe.close(resolveClose));
 });
