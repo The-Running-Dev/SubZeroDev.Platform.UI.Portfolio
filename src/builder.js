@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { watch } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -313,6 +315,127 @@ export async function checkPortfolioSite(paths) {
     });
     return { record, gates: orderedGates() };
   } finally { await rm(target, { recursive: true, force: true }); }
+}
+
+const devStagingPrefix = "szd-portfolio-dev-";
+const staticContentTypes = new Map([[".html", "text/html; charset=utf-8"], [".js", "text/javascript; charset=utf-8"], [".css", "text/css; charset=utf-8"], [".json", "application/json; charset=utf-8"], [".svg", "image/svg+xml"], [".png", "image/png"], [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"], [".ico", "image/x-icon"], [".txt", "text/plain; charset=utf-8"]]);
+function staticContentType(path) { return staticContentTypes.get(extname(path).toLowerCase()) ?? "application/octet-stream"; }
+function staticRequestPath(url) {
+  let decoded; try { decoded = decodeURIComponent((url ?? "/").split("?")[0].split("#")[0]); } catch { return undefined; }
+  if (decoded.includes("\0") || !decoded.startsWith("/")) return undefined;
+  const trimmed = decoded === "/" ? "/" : decoded.replace(/\/+$/, "") || "/";
+  return extname(trimmed) ? trimmed.slice(1) : outputFile(trimmed);
+}
+async function respondNotFound(res) { res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }); res.end("Not found"); }
+async function respondFromRoot(root, url, res) {
+  const relativePath = root ? staticRequestPath(url) : undefined;
+  let realRoot; if (relativePath) { try { realRoot = await realpath(root); } catch { realRoot = undefined; } }
+  const absolute = realRoot ? contained(realRoot, relativePath) : undefined;
+  let real; if (absolute) { try { real = await realpath(absolute); } catch { real = undefined; } }
+  if (real && !contained(realRoot, relative(realRoot, real))) real = undefined;
+  let data;
+  if (real) { try { if (!(await stat(real)).isFile()) real = undefined; else data = await readFile(real); } catch { real = undefined; } }
+  if (!real) return respondNotFound(res);
+  res.writeHead(200, { "content-type": staticContentType(real) });
+  res.end(data);
+}
+
+export async function startPortfolioDevServer(paths, address) {
+  if (!paths?.rootDir || !paths?.configPath || !paths?.outDir) throw new BuilderError("config.invalid", "Every dev path is required");
+  if (!address?.host || typeof address?.port !== "number") throw new BuilderError("config.invalid", "Every dev address value is required");
+  const root = resolve(paths.rootDir);
+  if (!contained(root, paths.outDir)) throw new BuilderError("config.invalid", "Output escapes root");
+
+  const initialConfig = await loadPortfolioConfig(paths.rootDir, paths.configPath);
+  const manifest = await provenance();
+  const initialResolved = await resolveBuildSources(initialConfig);
+
+  let currentDir, previousDir, lastError, closed = false, generationInFlight = false, pending = false;
+  const watchers = new Map();
+  const stagingDirs = new Set();
+
+  function reportError(error) { process.stderr.write(`dev: generation failed: ${error.code ?? "generation.failed"}: ${error.message}\n`); }
+
+  function declaredFilePaths(config) {
+    const set = new Set();
+    const configAbsolute = contained(root, paths.configPath);
+    if (configAbsolute) set.add(configAbsolute);
+    for (const style of config.styles) if (style.kind === "consumer-stylesheet") { const p = contained(root, style.sourcePath); if (p) set.add(p); }
+    for (const asset of config.publicAssets) { const p = contained(root, asset.sourcePath); if (p) set.add(p); }
+    return set;
+  }
+
+  function updateWatches(config) {
+    const desired = declaredFilePaths(config);
+    for (const [watchedPath, watcher] of watchers) if (!desired.has(watchedPath)) { watcher.close(); watchers.delete(watchedPath); }
+    for (const watchedPath of desired) {
+      if (watchers.has(watchedPath)) continue;
+      try { const watcher = watch(watchedPath, () => { if (!closed) scheduleGeneration(); }); watcher.on("error", () => {}); watchers.set(watchedPath, watcher); } catch {}
+    }
+  }
+
+  async function stageFrom(config, resolved) {
+    const target = join(tmpdir(), `${devStagingPrefix}${randomUUID()}`);
+    stagingDirs.add(target);
+    await verifyDeclaredFiles(root, config);
+    await compileRoutes(config, resolved, target);
+    await copyAssets(root, config, target);
+    const files = await fileDigests(target);
+    const built = buildArtifactRecord(config, manifest, resolved, files);
+    await write(join(target, artifactName), canonical(built));
+    return { target, record: built };
+  }
+
+  async function publish(staged) {
+    const toRemove = previousDir;
+    previousDir = currentDir; currentDir = staged.target; lastError = undefined;
+    if (toRemove) { await rm(toRemove, { recursive: true, force: true }); stagingDirs.delete(toRemove); }
+  }
+
+  async function runGeneration() {
+    let config;
+    try { config = await loadPortfolioConfig(paths.rootDir, paths.configPath); }
+    catch (cause) { lastError = cause instanceof BuilderError ? cause : new BuilderError("config.load_failed", "Configuration could not load", { cause }); reportError(lastError); return; }
+    updateWatches(config);
+    let staged;
+    try { const resolved = await resolveBuildSources(config); staged = await stageFrom(config, resolved); }
+    catch (cause) { lastError = cause instanceof BuilderError ? cause : new BuilderError("compile.failed", "Development generation failed", { cause }); reportError(lastError); return; }
+    await publish(staged);
+  }
+
+  function scheduleGeneration() {
+    if (closed) return;
+    if (generationInFlight) { pending = true; return; }
+    generationInFlight = true;
+    runGeneration().finally(() => { generationInFlight = false; if (pending) { pending = false; scheduleGeneration(); } });
+  }
+
+  const server = createServer((req, res) => { respondFromRoot(currentDir, req.url, res).catch(() => { try { res.writeHead(500); res.end(); } catch {} }); });
+  await new Promise((resolveBind, rejectBind) => {
+    const onError = (cause) => { server.removeListener("listening", onListening); rejectBind(new BuilderError("server.bind_failed", "Dev server failed to bind", { cause })); };
+    const onListening = () => { server.removeListener("error", onError); resolveBind(); };
+    server.once("error", onError); server.once("listening", onListening);
+    server.listen(address.port, address.host);
+  });
+
+  updateWatches(initialConfig);
+  try { await publish(await stageFrom(initialConfig, initialResolved)); }
+  catch (cause) { lastError = cause instanceof BuilderError ? cause : new BuilderError("compile.failed", "Development generation failed", { cause }); reportError(lastError); }
+
+  async function close() {
+    if (closed) return;
+    closed = true;
+    for (const watcher of watchers.values()) watcher.close();
+    watchers.clear();
+    const stopped = new Promise((resolveClose) => server.close(() => resolveClose()));
+    server.closeAllConnections();
+    await stopped;
+    for (const dir of stagingDirs) await rm(dir, { recursive: true, force: true });
+    stagingDirs.clear(); currentDir = undefined; previousDir = undefined;
+  }
+
+  const bound = server.address();
+  return { address: { host: address.host, port: bound && typeof bound === "object" ? bound.port : address.port }, close };
 }
 
 export function validateArtifactRecordV1(input) { return record(input) && input.version === 1 && typeof input.artifactDigest === "string" && Array.isArray(input.files) ? { ok: true, value: input } : { ok: false, issues: [issue("artifact.invalid", [])] }; }

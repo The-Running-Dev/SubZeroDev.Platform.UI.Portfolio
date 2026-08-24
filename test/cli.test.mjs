@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,4 +94,27 @@ test("S17.5 CLI check --help prints usage without loading configuration", async 
     execFileAsync(process.execPath, [cliPath, "help"]),
     (error) => error.code === 1 && /^usage: /.test(error.stderr),
   );
+});
+
+test("S18.1 CLI dev --root <path> --config <path> --out-dir <path> --host <host> --port <port> binds and reports its address", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const child = spawn(process.execPath, [cliPath, "dev", "--root", dir, "--config", "site.mjs", "--out-dir", "out", "--host", "127.0.0.1", "--port", "0"]);
+  t.after(() => child.kill());
+  let stdout = "";
+  await new Promise((resolveReady, rejectReady) => {
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); if (/^dev http:\/\//m.test(stdout)) resolveReady(); });
+    child.once("error", rejectReady);
+    child.once("exit", (code) => rejectReady(new Error(`dev exited early with code ${code}`)));
+  });
+  assert.match(stdout, /^dev http:\/\/127\.0\.0\.1:\d+\n/);
+  await assert.rejects(readFile(join(dir, "out")));
+});
+
+test("S18.1 CLI dev rejects a missing --port without mutating output", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "dev", "--root", dir, "--config", "site.mjs", "--out-dir", "out", "--host", "127.0.0.1"]),
+    (error) => error.code === 1 && /^config\.invalid: /.test(error.stderr),
+  );
+  await assert.rejects(readFile(join(dir, "out")));
 });
