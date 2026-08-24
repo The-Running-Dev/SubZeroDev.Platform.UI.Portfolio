@@ -437,98 +437,6 @@ slices under `## Outstanding`; it never rewrites a landed row or reuses an id.
 
 ## Outstanding
 
-## S15 — Plan every declared route, style, and public asset
-
-Delivers: A site maintainer can build a root-only site or the full declared
-Portfolio route set and receives only the routes, links, styles, and assets the
-configuration explicitly names.
-
-Touches: site configuration, route planner, source orchestrator, document
-compiler, artifact writer, navigation capabilities, style capabilities, public
-assets
-
-Depends on: S11, S13, S14
-
-Acceptance:
-
-- S15.1 Root-only and explicit multi-route fixtures emit one contained static
-  document per declared normalized path, retain declaration order in records,
-  and fail broken-link checks for every undeclared absolute-site destination.
-- S15.2 Duplicate, escaping, or base-path-incompatible routes; missing or
-  duplicated required source references; timing conflicts; and route/source
-  cycles fail planning before compilation.
-- S15.3 Missing, non-regular, escaping, disallowed, duplicate, or colliding
-  style and asset declarations fail before staging promotion, including
-  collisions with documents, bundles, bootstrap data, and the artifact record.
-- S15.4 The core stylesheet appears exactly once only when declared, consumer
-  styles retain declared order, and JavaScript imports add no stylesheet.
-- S15.5 Every route kind uses the same document compiler and emits the
-  contracted chrome, version, text-size, and reader-mode sources only when its
-  presentation declaration references them.
-- S15.6 The explicit current-Portfolio fixture and the root-only fixture pass
-  route, DOM/CSS namespace, hydration, accessibility, and artifact-record
-  checks without copying consumer product data into the package.
-
-Out of scope: arbitrary Vite plugins, inferred routers, inherited template
-pages, host defaults, and deployment policy.
-
-## S17 — Check a site without replacing its artifact
-
-Delivers: A site maintainer can run the package's complete validation and
-verification path and receive an explicit result for every gate without
-replacing the site's existing build.
-
-Touches: check command, command surface, route planner, document compiler,
-artifact verifier, gate result and check result records
-
-Depends on: S15, S16
-
-Acceptance:
-
-- S17.1 `check --root <path> --config <path>` rejects an omitted or inferred
-  path and runs the production loader, provenance verifier, resolver, planner,
-  compiler, and artifact checks in an isolated temporary target.
-- S17.2 The report contains every contracted gate exactly once with `passed`,
-  `failed`, or `not-run`; a failed gate returns `check.failed`, the complete
-  gate list, and a non-zero process exit.
-- S17.3 Fault injection before and after every temporary write leaves the named
-  production output and source repository byte-for-byte unchanged.
-- S17.4 A clean representative fixture returns an artifact record whose digest
-  and file list match an ordinary build of the same inputs.
-- S17.5 Help and unknown invocations print usage without loading configuration;
-  success writes one concise result line and failures write ordered redacted
-  diagnostics to stderr.
-
-Out of scope: serving, watching, merging, publishing, and deployment.
-
-## S18 — Regenerate a development site without partial generations
-
-Delivers: A site author can work against an explicit local address and sees
-only complete site generations while configuration and source files change.
-
-Touches: dev command, Node configuration loader, source orchestrator, route
-planner, document compiler, artifact writer, static server
-
-Depends on: S17
-
-Acceptance:
-
-- S18.1 `dev --root <path> --config <path> --out-dir <path> --host <host> --port
-  <port>` requires every shown value and binds only after configuration,
-  provenance, and initial build-source resolution succeed.
-- S18.2 A burst of observed changes is coalesced, one generation runs at a time,
-  and the last observed change produces the next eligible generation.
-- S18.3 A failing generation is visible through the development error surface
-  and never publishes any of its documents, models, styles, assets, or record;
-  the last complete generation remains served.
-- S18.4 Production and development fixtures produce byte-equivalent route
-  documents and bootstrap records for equal normalized inputs.
-- S18.5 Closing the server releases watchers, subscriptions, sockets, staging
-  state, and its ordinary lease without deleting ambiguous recovery state.
-
-Out of scope: implicit file discovery, hot acceptance of invalid data,
-parallel generations, and deployment concurrency.
-
 ## S19 — Preview the exact promoted artifact
 
 Delivers: A reviewer can build and serve the exact promoted site at an explicit
@@ -644,3 +552,9 @@ repository modification, and default-branch merge.
   Criteria S14.1–S14.6. Landed at `3f20ed8153c6cd354cd0e6db0711938ef2c441af`.
 - **S16** — Resolve declared sources through Data.Json. Issue #9.
   Criteria S16.1–S16.5. Landed at `e2fdd0f196f35a8092a156024892317db0d52097`.
+- **S15** — Plan every declared route, style, and public asset. Issue #8.
+  Criteria S15.1–S15.6. Landed at `326e61a`.
+- **S17** — Check a site without replacing its artifact. Issue #10.
+  Criteria S17.1–S17.5. Landed at `75fc20c`.
+- **S18** — Regenerate a development site without partial generations. Issue #11.
+  Criteria S18.1–S18.5. Landed at `864957b`.
