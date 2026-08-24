@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { BuilderError, buildPortfolioSite, checkPortfolioSite, defineSource, previewPortfolioSite, startPortfolioDevServer, validateArtifactRecordV1, validatePortfolioSiteConfigV1, validateProvenanceManifestV1 } from "../src/builder.js";
+import { BuilderError, buildPortfolioSite, checkPortfolioSite, defineSource, mergePortfolioArtifact, previewPortfolioSite, startPortfolioDevServer, validateArtifactRecordV1, validatePortfolioSiteConfigV1, validateProvenanceManifestV1, validateRecoveryRecordV1 } from "../src/builder.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const builderUrl = pathToFileURL(join(root, "src/builder.js")).href;
@@ -701,4 +701,176 @@ test("S19.4 a bind failure returns server.bind_failed, leaves the promoted artif
   const probe = createServer();
   await new Promise((resolveListen, rejectListen) => { probe.once("error", rejectListen); probe.listen(port, "127.0.0.1", resolveListen); });
   await new Promise((resolveClose) => probe.close(resolveClose));
+});
+
+async function mergeFixture() {
+  const { dir } = await fixture();
+  await buildPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "artifact" });
+  const artifactDir = join(dir, "artifact");
+  const targetDir = join(dir, "target");
+  await mkdir(join(targetDir, "keep"), { recursive: true });
+  await writeFile(join(targetDir, "keep", "CNAME"), "example.com");
+  await writeFile(join(targetDir, "stale.html"), "<html>stale</html>");
+  return { dir, artifactDir, targetDir };
+}
+
+async function treeFiles(rootDir) {
+  const entries = [];
+  async function walk(dir) {
+    let items;
+    try { items = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const item of items) {
+      const absolute = join(dir, item.name);
+      if (item.isDirectory()) await walk(absolute);
+      else entries.push([relative(rootDir, absolute).replaceAll("\\", "/"), await readFile(absolute, "utf8")]);
+    }
+  }
+  await walk(rootDir);
+  return entries.sort(([a], [b]) => a.localeCompare(b));
+}
+
+test("S20.1 requires both merge paths and accepts an explicit empty protected set", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  for (const options of [{ targetDir }, { artifactDir }, {}]) {
+    await assert.rejects(mergePortfolioArtifact(options), (error) => error instanceof BuilderError && error.code === "config.invalid" && error.message === "Every merge path is required");
+  }
+  const result = await mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] });
+  assert.match(result.artifactDigest, /^sha256:/);
+  assert.equal(result.targetDir, resolve(targetDir));
+});
+
+test("S20.1 normalizes and deduplicates protected subtree paths, rejecting an escape", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: ["../escape"] }), (error) => error.code === "config.invalid");
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: ["/absolute"] }), (error) => error.code === "config.invalid");
+  const result = await mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: ["keep/", "keep", "./keep"] });
+  assert.match(result.artifactDigest, /^sha256:/);
+  assert.equal(await readFile(join(targetDir, "keep/CNAME"), "utf8"), "example.com");
+});
+
+test("S20.2 validates the source artifact and rejects a missing record without touching the destination", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const before = await treeFiles(targetDir);
+  await rm(join(artifactDir, ".szd-portfolio-artifact.json"));
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] }), (error) => error instanceof BuilderError && error.code === "merge.failed");
+  assert.deepEqual(await treeFiles(targetDir), before);
+});
+
+test("S20.2 rejects a tampered source artifact whose files no longer match its record", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const before = await treeFiles(targetDir);
+  await writeFile(join(artifactDir, "work/index.html"), "<html>tampered</html>");
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] }), (error) => error instanceof BuilderError && error.code === "merge.failed");
+  assert.deepEqual(await treeFiles(targetDir), before);
+});
+
+test("S20.2 and S20.4 rejects a protected-path collision, naming it, without touching the destination", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const before = await treeFiles(targetDir);
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: ["work"] }), (error) => error instanceof BuilderError && error.code === "merge.collision" && error.path === "work/index.html");
+  assert.deepEqual(await treeFiles(targetDir), before);
+});
+
+test("S20.2 and S20.4 rejects on injected capacity failure without touching the destination", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const before = await treeFiles(targetDir);
+  process.env.SZD_PORTFOLIO_FAIL_AT = "capacity";
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] }), (error) => error.code === "merge.failed");
+  delete process.env.SZD_PORTFOLIO_FAIL_AT;
+  assert.deepEqual(await treeFiles(targetDir), before);
+});
+
+test("S20.4 rejects on injected write failure without touching the destination", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const before = await treeFiles(targetDir);
+  process.env.SZD_PORTFOLIO_FAIL_AT = "write";
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] }), (error) => error.code === "merge.failed");
+  delete process.env.SZD_PORTFOLIO_FAIL_AT;
+  assert.deepEqual(await treeFiles(targetDir), before);
+});
+
+test("S20.4 a protected subtree mutated after its first fingerprint returns merge.target_changed without touching the destination", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const before = await treeFiles(targetDir);
+  process.env.SZD_PORTFOLIO_MERGE_DELAY_MS = "80";
+  const merging = mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: ["keep"] });
+  await delay(20);
+  await writeFile(join(targetDir, "keep", "CNAME"), "changed.example");
+  await assert.rejects(merging, (error) => error instanceof BuilderError && error.code === "merge.target_changed");
+  delete process.env.SZD_PORTFOLIO_MERGE_DELAY_MS;
+  const after = await treeFiles(targetDir);
+  assert.deepEqual(after.filter(([path]) => path !== "keep/CNAME"), before.filter(([path]) => path !== "keep/CNAME"));
+});
+
+test("S20.4 an injected clean promotion failure leaves the destination byte-for-byte unchanged", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const before = await treeFiles(targetDir);
+  process.env.SZD_PORTFOLIO_FAIL_AT = "promotion";
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] }), (error) => error.code === "merge.failed");
+  delete process.env.SZD_PORTFOLIO_FAIL_AT;
+  assert.deepEqual(await treeFiles(targetDir), before);
+  await assert.rejects(readFile(`${targetDir}.recovery.json`));
+});
+
+test("S20.3 requires both leases and acquires them in normalized-path order", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const [first, second] = [resolve(artifactDir), resolve(targetDir)].sort();
+  await writeFile(`${first}.lease.json`, "held");
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] }), (error) => error instanceof BuilderError && error.code === "lease.unavailable" && error.path === `${first}.lease.json`);
+  await assert.rejects(readFile(`${second}.lease.json`));
+  await rm(`${first}.lease.json`);
+  const result = await mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] });
+  assert.match(result.artifactDigest, /^sha256:/);
+});
+
+test("S20.3 reversed concurrent merges of the same tree pair complete without deadlock", async (t) => {
+  const first = await mergeFixture(); const second = await mergeFixture();
+  t.after(() => Promise.all([rm(first.dir, { recursive: true, force: true }), rm(second.dir, { recursive: true, force: true })]));
+  const treeX = first.artifactDir; const treeY = second.artifactDir;
+  const results = await Promise.race([
+    Promise.allSettled([
+      mergePortfolioArtifact({ artifactDir: treeX, targetDir: treeY, protectedPaths: [] }),
+      mergePortfolioArtifact({ artifactDir: treeY, targetDir: treeX, protectedPaths: [] }),
+    ]),
+    delay(5000).then(() => { throw new Error("reversed concurrent merges deadlocked"); }),
+  ]);
+  assert.equal(results.length, 2);
+  for (const outcome of results) {
+    if (outcome.status === "rejected") assert.ok(outcome.reason instanceof BuilderError, "a rejection must be the contracted typed error, not a hang or crash");
+  }
+});
+
+test("S20.5 an interrupted promotion writes a recovery record naming the target, staging, previous tree, and phase; a later merge refuses it without deleting it", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  process.env.SZD_PORTFOLIO_FAIL_AT = "promotion-interrupted";
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] }), (error) => error instanceof BuilderError && error.code === "merge.failed");
+  delete process.env.SZD_PORTFOLIO_FAIL_AT;
+
+  const recoveryPath = `${resolve(targetDir)}.recovery.json`;
+  const recovery = JSON.parse(await readFile(recoveryPath, "utf8"));
+  assert.equal(validateRecoveryRecordV1(recovery).ok, true);
+  assert.equal(recovery.operation, "merge");
+  assert.equal(recovery.targetPath, resolve(targetDir));
+  assert.ok(recovery.stagingPath.startsWith(`${resolve(targetDir)}.staging-`));
+  assert.ok(recovery.previousPath.startsWith(`${resolve(targetDir)}.previous-`));
+  assert.equal(recovery.phase, "promotion-started");
+
+  await assert.rejects(mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: [] }), (error) => error instanceof BuilderError && error.code === "recovery.required");
+  assert.equal(await readFile(recoveryPath, "utf8"), JSON.stringify(recovery));
+  await assert.doesNotReject(readFile(join(recovery.previousPath, "keep/CNAME")));
+});
+
+test("S20.6 a successful merge returns the exact source artifact digest and leaves the source artifact unmodified", async (t) => {
+  const { dir, artifactDir, targetDir } = await mergeFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const sourceBefore = await treeFiles(artifactDir);
+  const sourceRecord = JSON.parse(await readFile(join(artifactDir, ".szd-portfolio-artifact.json"), "utf8"));
+  const result = await mergePortfolioArtifact({ artifactDir, targetDir, protectedPaths: ["keep"] });
+  assert.equal(result.artifactDigest, sourceRecord.artifactDigest);
+  assert.deepEqual(await treeFiles(artifactDir), sourceBefore);
+  assert.equal(await readFile(join(targetDir, "keep/CNAME"), "utf8"), "example.com");
+  assert.match(await readFile(join(targetDir, "work/index.html"), "utf8"), /szd-portfolio-overview/);
+  const promoted = JSON.parse(await readFile(join(targetDir, ".szd-portfolio-artifact.json"), "utf8"));
+  assert.equal(promoted.artifactDigest, sourceRecord.artifactDigest);
+  await assert.rejects(readFile(`${resolve(targetDir)}.lease.json`));
+  await assert.rejects(readFile(`${resolve(artifactDir)}.lease.json`));
 });

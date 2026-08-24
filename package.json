@@ -53,7 +53,7 @@
     "typecheck": "npx --yes --package typescript@5.9.3 tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,ESNext.Disposable,DOM test/types.ts"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18.15.0"
   },
   "license": "UNLICENSED"
 }
