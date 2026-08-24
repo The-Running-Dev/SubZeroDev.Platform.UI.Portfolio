@@ -437,33 +437,6 @@ slices under `## Outstanding`; it never rewrites a landed row or reuses an id.
 
 ## Outstanding
 
-## S19 — Preview the exact promoted artifact
-
-Delivers: A reviewer can build and serve the exact promoted site at an explicit
-local address, with contained request handling shared by every preview.
-
-Touches: preview command, build command, static server, artifact writer,
-running-server contract
-
-Depends on: S17
-
-Acceptance:
-
-- S19.1 `preview --root <path> --config <path> --out-dir <path> --host <host>
-  --port <port>` requires every shown value, completes an ordinary promoted
-  build, and binds only after that build succeeds.
-- S19.2 The server reads only the artifact recorded for that build and maps each
-  declared route and asset to the same contained path and content type used by
-  the production artifact checks.
-- S19.3 Malformed encoding, traversal, escaping symlinks, absent files, and
-  undeclared routes return the generic not-found result without exposing a host
-  path or reading outside the artifact.
-- S19.4 A bind failure returns `server.bind_failed`, leaves the promoted
-  artifact valid, and releases the server's ordinary resources.
-
-Out of scope: dev watching, inferred fallback routes, remote hosting, TLS, and
-deployment.
-
 ## S20 — Merge an artifact without risking protected content
 
 Delivers: A release maintainer can combine a verified Portfolio artifact with a
@@ -558,3 +531,5 @@ repository modification, and default-branch merge.
   Criteria S17.1–S17.5. Landed at `75fc20c`.
 - **S18** — Regenerate a development site without partial generations. Issue #11.
   Criteria S18.1–S18.5. Landed at `864957b`.
+- **S19** — Preview the exact promoted artifact. Issue #12.
+  Criteria S19.1–S19.4. Landed at `8a58770`.
