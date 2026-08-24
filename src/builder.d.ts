@@ -14,6 +14,7 @@ export function checkPortfolioSite(paths: BuilderInputPaths): Promise<CheckResul
 export interface ServerAddress { readonly host: string; readonly port: number; }
 export interface RunningServer { readonly address: ServerAddress; readonly close: () => Promise<void>; }
 export function startPortfolioDevServer(paths: BuilderPaths, address: ServerAddress): Promise<RunningServer>;
+export function previewPortfolioSite(paths: BuilderPaths, address: ServerAddress): Promise<RunningServer>;
 export function validateProvenanceManifestV1(input: unknown): ValidationResult<any>;
 export function validateArtifactRecordV1(input: unknown): ValidationResult<any>;
 export function validateRecoveryRecordV1(input: unknown): ValidationResult<any>;

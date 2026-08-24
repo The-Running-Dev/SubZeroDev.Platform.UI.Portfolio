@@ -118,3 +118,26 @@ test("S18.1 CLI dev rejects a missing --port without mutating output", async (t)
   );
   await assert.rejects(readFile(join(dir, "out")));
 });
+
+test("S19.1 CLI preview --root <path> --config <path> --out-dir <path> --host <host> --port <port> completes an ordinary build, binds, and reports its address", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const child = spawn(process.execPath, [cliPath, "preview", "--root", dir, "--config", "site.mjs", "--out-dir", "out", "--host", "127.0.0.1", "--port", "0"]);
+  t.after(() => child.kill());
+  let stdout = "";
+  await new Promise((resolveReady, rejectReady) => {
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); if (/^preview http:\/\//m.test(stdout)) resolveReady(); });
+    child.once("error", rejectReady);
+    child.once("exit", (code) => rejectReady(new Error(`preview exited early with code ${code}`)));
+  });
+  assert.match(stdout, /^preview http:\/\/127\.0\.0\.1:\d+\n/);
+  await assert.doesNotReject(readFile(join(dir, "out/.szd-portfolio-artifact.json")));
+});
+
+test("S19.1 CLI preview rejects a missing --port without mutating output", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "preview", "--root", dir, "--config", "site.mjs", "--out-dir", "out", "--host", "127.0.0.1"]),
+    (error) => error.code === 1 && /^config\.invalid: /.test(error.stderr),
+  );
+  await assert.rejects(readFile(join(dir, "out")));
+});

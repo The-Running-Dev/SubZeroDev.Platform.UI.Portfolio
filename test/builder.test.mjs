@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { BuilderError, buildPortfolioSite, checkPortfolioSite, defineSource, startPortfolioDevServer, validatePortfolioSiteConfigV1, validateProvenanceManifestV1 } from "../src/builder.js";
+import { BuilderError, buildPortfolioSite, checkPortfolioSite, defineSource, previewPortfolioSite, startPortfolioDevServer, validateArtifactRecordV1, validatePortfolioSiteConfigV1, validateProvenanceManifestV1 } from "../src/builder.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const builderUrl = pathToFileURL(join(root, "src/builder.js")).href;
@@ -448,6 +448,24 @@ async function fetchText(address, path) {
   return { status: response.status, body: await response.text() };
 }
 
+async function fetchResponse(address, path) {
+  const response = await fetch(`http://${address.host}:${address.port}${path}`);
+  return { status: response.status, body: await response.text(), contentType: response.headers.get("content-type") };
+}
+
+async function rawFetch(address, rawPath) {
+  return new Promise((resolveReq, rejectReq) => {
+    const req = httpRequest({ host: address.host, port: address.port, path: rawPath, method: "GET" }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => { body += chunk; });
+      res.on("end", () => resolveReq({ status: res.statusCode, body }));
+    });
+    req.once("error", rejectReq);
+    req.end();
+  });
+}
+
 async function waitFor(check, { timeout = 4000, interval = 20 } = {}) {
   const deadline = Date.now() + timeout;
   let lastError;
@@ -583,5 +601,104 @@ test("S18.5 closing releases watchers, sockets, and staging state without touchi
 
   const probe = createServer();
   await new Promise((resolveListen, rejectListen) => { probe.once("error", rejectListen); probe.listen(port, host, resolveListen); });
+  await new Promise((resolveClose) => probe.close(resolveClose));
+});
+
+test("S19.1 requires every preview path and address value", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const paths = { rootDir: dir, configPath: "site.mjs", outDir: "out" };
+  const address = { host: "127.0.0.1", port: 0 };
+  const cases = [
+    [{ configPath: "site.mjs", outDir: "out" }, address],
+    [{ rootDir: dir, outDir: "out" }, address],
+    [{ rootDir: dir, configPath: "site.mjs" }, address],
+    [paths, { port: 0 }],
+    [paths, { host: "127.0.0.1" }],
+    [{}, {}],
+  ];
+  for (const [givenPaths, givenAddress] of cases) {
+    await assert.rejects(previewPortfolioSite(givenPaths, givenAddress), (error) => error instanceof BuilderError && error.code === "config.invalid");
+  }
+  await assert.rejects(readFile(join(dir, "out")));
+});
+
+test("S19.1 completes an ordinary promoted build before binding, and a failing build never binds", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const port = await freePort();
+  const address = { host: "127.0.0.1", port };
+
+  await writeFile(join(dir, "site.mjs"), `import { definePortfolioSite } from ${JSON.stringify(builderUrl)};
+export default definePortfolioSite({ version: 1, metadata: { title: "Fixture" }, routes: [{ path: "/", metadata: { title: "Root" }, presentation: { kind: "portfolio", modelSourceId: "missing" }, requiredSourceIds: ["missing"] }], sources: [], styles: [], navigation: [], publicAssets: [] });`);
+  await assert.rejects(previewPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, address), (error) => error instanceof BuilderError && error.code === "config.load_failed");
+  await assert.rejects(readFile(join(dir, "out")));
+
+  const probe = createServer();
+  await new Promise((resolveListen, rejectListen) => { probe.once("error", rejectListen); probe.listen(port, "127.0.0.1", resolveListen); });
+  await new Promise((resolveClose) => probe.close(resolveClose));
+
+  await writeFile(join(dir, "site.mjs"), devConfigSource("Initial"));
+  const server = await previewPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, address);
+  t.after(() => server.close());
+  assert.equal(server.address.port, port);
+  await assert.doesNotReject(readFile(join(dir, "out/index.html")));
+});
+
+test("S19.2 previews the exact promoted artifact using the production containment and content-type mapping", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const server = await previewPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, { host: "127.0.0.1", port: 0 });
+  t.after(() => server.close());
+  const expectedHtml = await readFile(join(dir, "out/index.html"), "utf8");
+  const expectedBootstrap = await readFile(join(dir, "out/assets/szd-portfolio-bootstrap.js"), "utf8");
+
+  const html = await fetchResponse(server.address, "/");
+  assert.equal(html.status, 200);
+  assert.equal(html.body, expectedHtml);
+  assert.equal(html.contentType, "text/html; charset=utf-8");
+
+  const bootstrap = await fetchResponse(server.address, "/assets/szd-portfolio-bootstrap.js");
+  assert.equal(bootstrap.status, 200);
+  assert.equal(bootstrap.body, expectedBootstrap);
+  assert.equal(bootstrap.contentType, "text/javascript; charset=utf-8");
+});
+
+test("S19.3 malformed encoding, traversal, escaping symlinks, absent files, and undeclared routes all resolve to the generic not-found result", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const secretDir = await mkdtemp(join(tmpdir(), "szd-portfolio-secret-"));
+  const secretFile = join(secretDir, "index.html");
+  await writeFile(secretFile, "top secret");
+  t.after(() => rm(secretDir, { recursive: true, force: true }));
+
+  const server = await previewPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, { host: "127.0.0.1", port: 0 });
+  t.after(() => server.close());
+
+  await mkdir(join(dir, "out", "escaped"), { recursive: true });
+  await symlink(secretFile, join(dir, "out", "escaped", "index.html"));
+
+  const escapePattern = new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const cases = ["/%", "/../../etc/passwd", "/escaped", "/nope", "/not-a-declared-route"];
+  for (const path of cases) {
+    const response = await rawFetch(server.address, path);
+    assert.equal(response.status, 404, `expected the generic not-found result for ${path}`);
+    assert.doesNotMatch(response.body, escapePattern, `must not expose a host path for ${path}`);
+    assert.doesNotMatch(response.body, /top secret/, `must not read outside the artifact for ${path}`);
+  }
+});
+
+test("S19.4 a bind failure returns server.bind_failed, leaves the promoted artifact valid, and releases the server's ordinary resources", async (t) => {
+  const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  const occupied = createServer();
+  const port = await new Promise((resolveListen) => occupied.listen(0, "127.0.0.1", () => resolveListen(occupied.address().port)));
+
+  await assert.rejects(
+    previewPortfolioSite({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, { host: "127.0.0.1", port }),
+    (error) => error instanceof BuilderError && error.code === "server.bind_failed",
+  );
+
+  const promoted = JSON.parse(await readFile(join(dir, "out/.szd-portfolio-artifact.json"), "utf8"));
+  assert.equal(validateArtifactRecordV1(promoted).ok, true);
+
+  await new Promise((resolveClose) => occupied.close(resolveClose));
+  const probe = createServer();
+  await new Promise((resolveListen, rejectListen) => { probe.once("error", rejectListen); probe.listen(port, "127.0.0.1", resolveListen); });
   await new Promise((resolveClose) => probe.close(resolveClose));
 });
