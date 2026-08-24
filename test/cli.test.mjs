@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -140,4 +140,40 @@ test("S19.1 CLI preview rejects a missing --port without mutating output", async
     (error) => error.code === 1 && /^config\.invalid: /.test(error.stderr),
   );
   await assert.rejects(readFile(join(dir, "out")));
+});
+
+test("S20.1 CLI merge --artifact-dir <path> --target-dir <path> collects each repeated --protect as one normalized subtree", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await execFileAsync(process.execPath, [cliPath, "build", "--root", dir, "--config", "site.mjs", "--out-dir", "artifact"]);
+  const targetDir = join(dir, "target");
+  await mkdir(join(targetDir, "keep"), { recursive: true });
+  await writeFile(join(targetDir, "keep", "CNAME"), "example.com");
+  const { stdout } = await execFileAsync(process.execPath, [
+    cliPath, "merge", "--artifact-dir", join(dir, "artifact"), "--target-dir", targetDir,
+    "--protect", "keep/", "--protect", "keep",
+  ]);
+  assert.match(stdout, /^merge sha256:/);
+  assert.equal(await readFile(join(targetDir, "keep/CNAME"), "utf8"), "example.com");
+  assert.match(await readFile(join(targetDir, "work/index.html"), "utf8"), /szd-portfolio-overview/);
+});
+
+test("S20.1 CLI merge rejects a missing --target-dir without mutating output", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await execFileAsync(process.execPath, [cliPath, "build", "--root", dir, "--config", "site.mjs", "--out-dir", "artifact"]);
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "merge", "--artifact-dir", join(dir, "artifact")]),
+    (error) => error.code === 1 && /^config\.invalid: Every merge path is required/.test(error.stderr),
+  );
+  await assert.rejects(readFile(join(dir, "target")));
+});
+
+test("S20.2 CLI merge reports a named protected-path collision to stderr and exits non-zero", async (t) => {
+  const dir = await fixture(); t.after(() => rm(dir, { recursive: true, force: true }));
+  await execFileAsync(process.execPath, [cliPath, "build", "--root", dir, "--config", "site.mjs", "--out-dir", "artifact"]);
+  const targetDir = join(dir, "target");
+  await mkdir(targetDir, { recursive: true });
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, "merge", "--artifact-dir", join(dir, "artifact"), "--target-dir", targetDir, "--protect", "work"]),
+    (error) => error.code === 1 && /^merge\.collision: /.test(error.stderr),
+  );
 });

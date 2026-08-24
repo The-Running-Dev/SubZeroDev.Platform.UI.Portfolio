@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { buildPortfolioSite, checkPortfolioSite, previewPortfolioSite, startPortfolioDevServer } from "./builder.js";
+import { buildPortfolioSite, checkPortfolioSite, mergePortfolioArtifact, previewPortfolioSite, startPortfolioDevServer } from "./builder.js";
 
 const usage = "usage: subzerodev-platform-ui-portfolio build --root <path> --config <path> --out-dir <path>\n"
   + "       subzerodev-platform-ui-portfolio check --root <path> --config <path>\n"
   + "       subzerodev-platform-ui-portfolio dev --root <path> --config <path> --out-dir <path> --host <host> --port <port>\n"
-  + "       subzerodev-platform-ui-portfolio preview --root <path> --config <path> --out-dir <path> --host <host> --port <port>\n";
+  + "       subzerodev-platform-ui-portfolio preview --root <path> --config <path> --out-dir <path> --host <host> --port <port>\n"
+  + "       subzerodev-platform-ui-portfolio merge --artifact-dir <path> --target-dir <path> [--protect <relative-path>]...\n";
 
 function fail(message) { process.stderr.write(message); process.exitCode = 1; }
 
@@ -13,7 +14,10 @@ const values = {};
 let parseFailed = false;
 for (let i = 0; i < args.length; i += 2) {
   if (!args[i]?.startsWith("--") || !args[i + 1]) { parseFailed = true; break; }
-  values[args[i].slice(2)] = args[i + 1];
+  const key = args[i].slice(2);
+  if (values[key] === undefined) values[key] = args[i + 1];
+  else if (Array.isArray(values[key])) values[key].push(args[i + 1]);
+  else values[key] = [values[key], args[i + 1]];
 }
 
 if (parseFailed) {
@@ -53,6 +57,14 @@ if (parseFailed) {
     process.stdout.write(`preview http://${server.address.host}:${server.address.port}\n`);
   } catch (error) {
     fail(`${error.code ?? "preview.failed"}: ${error.message}\n`);
+  }
+} else if (command === "merge") {
+  try {
+    const protect = values.protect === undefined ? [] : Array.isArray(values.protect) ? values.protect : [values.protect];
+    const result = await mergePortfolioArtifact({ artifactDir: values["artifact-dir"], targetDir: values["target-dir"], protectedPaths: protect });
+    process.stdout.write(`merge ${result.artifactDigest}\n`);
+  } catch (error) {
+    fail(`${error.code ?? "merge.failed"}: ${error.message}\n`);
   }
 } else {
   fail(usage);

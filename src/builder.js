@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readdir, readFile, realpath, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { watch } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -462,4 +462,139 @@ export async function previewPortfolioSite(paths, address) {
 }
 
 export function validateArtifactRecordV1(input) { return record(input) && input.version === 1 && typeof input.artifactDigest === "string" && Array.isArray(input.files) ? { ok: true, value: input } : { ok: false, issues: [issue("artifact.invalid", [])] }; }
-export function validateRecoveryRecordV1(input) { return record(input) && input.version === 1 && input.operation === "build" ? { ok: true, value: input } : { ok: false, issues: [issue("recovery.invalid", [])] }; }
+export function validateRecoveryRecordV1(input) { return record(input) && input.version === 1 && (input.operation === "build" || input.operation === "merge") ? { ok: true, value: input } : { ok: false, issues: [issue("recovery.invalid", [])] }; }
+
+function normalizedProtectedSubtree(value) {
+  if (typeof value !== "string" || value.length === 0 || isAbsolute(value) || value.includes("\\")) return undefined;
+  const parts = value.split("/").filter((part) => part.length > 0 && part !== ".");
+  if (parts.length === 0 || parts.some((part) => part === "..")) return undefined;
+  return parts.join("/");
+}
+function normalizedProtectedPaths(values) {
+  if (!Array.isArray(values)) throw new BuilderError("config.invalid", "Protected paths must be an array");
+  const set = new Set();
+  for (const value of values) {
+    const normalized = normalizedProtectedSubtree(value);
+    if (normalized === undefined) throw new BuilderError("config.invalid", "Protected path is invalid", { path: String(value) });
+    set.add(normalized);
+  }
+  return [...set];
+}
+function underProtected(relativePath, protectedPaths) { return protectedPaths.some((path) => relativePath === path || relativePath.startsWith(`${path}/`)); }
+
+async function directorySize(rootDir) {
+  let total = 0;
+  async function walk(dir) {
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const absolute = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(absolute);
+      else { try { total += (await stat(absolute)).size; } catch {} }
+    }
+  }
+  await walk(rootDir);
+  return total;
+}
+
+async function protectedFingerprint(root, relativePath) {
+  const absolute = contained(root, relativePath);
+  if (!absolute) throw new BuilderError("merge.failed", "Protected path escapes destination", { path: relativePath });
+  let info;
+  try { info = await stat(absolute); } catch { return undefined; }
+  if (info.isFile()) return digest(await readFile(absolute));
+  if (info.isDirectory()) return digest(await fileDigests(absolute));
+  return undefined;
+}
+
+async function acquireTreeLease(path, operation) {
+  const leasePath = `${path}.lease.json`;
+  try { await access(leasePath); throw new BuilderError("lease.unavailable", "Lease unavailable", { path: leasePath }); } catch (error) { if (error instanceof BuilderError) throw error; }
+  await writeFile(leasePath, canonical({ version: 1, operation, normalizedTargetPath: path, ownerId: randomUUID() }));
+  return leasePath;
+}
+
+export async function mergePortfolioArtifact(options) {
+  if (!options?.artifactDir || !options?.targetDir) throw new BuilderError("config.invalid", "Every merge path is required");
+  const sourceRoot = resolve(options.artifactDir);
+  const targetRoot = resolve(options.targetDir);
+  const protectedPaths = normalizedProtectedPaths(options.protectedPaths ?? []);
+
+  const targetRecovery = `${targetRoot}.recovery.json`;
+  try { await access(targetRecovery); throw new BuilderError("recovery.required", "Recovery is required", { path: targetRecovery }); } catch (error) { if (error instanceof BuilderError) throw error; }
+
+  const orderedPaths = [...new Set([sourceRoot, targetRoot])].sort();
+  const acquiredLeases = [];
+  try {
+    for (const path of orderedPaths) acquiredLeases.push(await acquireTreeLease(path, path === sourceRoot ? "merge-read" : "merge-write"));
+  } catch (error) {
+    for (const leasePath of acquiredLeases) await rm(leasePath, { force: true });
+    throw error;
+  }
+
+  const staging = `${targetRoot}.staging-${randomUUID()}`;
+  const previous = `${targetRoot}.previous-${randomUUID()}`;
+  try {
+    const artifactRecordPath = join(sourceRoot, artifactName);
+    let rawRecord;
+    try { rawRecord = JSON.parse(await readFile(artifactRecordPath, "utf8")); } catch (cause) { throw new BuilderError("merge.failed", "Source artifact record could not be read", { path: artifactRecordPath, cause }); }
+    const verifiedRecord = validateArtifactRecordV1(rawRecord);
+    if (!verifiedRecord.ok) throw new BuilderError("merge.failed", "Source artifact record is invalid", { path: artifactRecordPath, issues: verifiedRecord.issues });
+    const sourceRecord = verifiedRecord.value;
+    const actualFiles = (await fileDigests(sourceRoot)).filter((file) => file.path !== artifactName);
+    if (sourceRecord.artifactDigest !== digest({ ...sourceRecord, artifactDigest: "" }) || digest(actualFiles) !== digest(sourceRecord.files)) {
+      throw new BuilderError("merge.failed", "Source artifact does not match its record", { path: sourceRoot });
+    }
+
+    let targetExists = true;
+    try { await stat(targetRoot); } catch { targetExists = false; }
+
+    const mergedPaths = [...sourceRecord.files.map((file) => file.path), artifactName];
+    for (const path of mergedPaths) if (!contained(targetRoot, path)) throw new BuilderError("merge.failed", "Merged path escapes the destination", { path });
+    const collisions = mergedPaths.filter((path) => underProtected(path, protectedPaths));
+    if (collisions.length > 0) throw new BuilderError("merge.collision", "Artifact collides with a protected path", { path: collisions[0], issues: collisions.map((path) => issue("merge.collision", [path])) });
+
+    const initialFingerprints = new Map();
+    for (const protectedPath of protectedPaths) initialFingerprints.set(protectedPath, await protectedFingerprint(targetRoot, protectedPath));
+
+    if (process.env.SZD_PORTFOLIO_FAIL_AT === "capacity") throw new BuilderError("merge.failed", "Insufficient capacity for merge", { path: targetRoot });
+    const sourceBytes = await directorySize(sourceRoot);
+    const targetBytes = targetExists ? await directorySize(targetRoot) : 0;
+    try {
+      const stats = await statfs(dirname(targetRoot));
+      if (stats.bavail * stats.bsize < sourceBytes + targetBytes) throw new BuilderError("merge.failed", "Insufficient capacity for merge", { path: targetRoot });
+    } catch (cause) { if (cause instanceof BuilderError) throw cause; }
+
+    if (targetExists) await cp(targetRoot, staging, { recursive: true }); else await mkdir(staging, { recursive: true });
+    if (process.env.SZD_PORTFOLIO_FAIL_AT === "write") throw new Error("injected write failure");
+    for (const file of sourceRecord.files) { await mkdir(dirname(join(staging, file.path)), { recursive: true }); await cp(join(sourceRoot, file.path), join(staging, file.path)); }
+    await cp(artifactRecordPath, join(staging, artifactName));
+
+    if (process.env.SZD_PORTFOLIO_MERGE_DELAY_MS) await new Promise((resolveDelay) => setTimeout(resolveDelay, Number(process.env.SZD_PORTFOLIO_MERGE_DELAY_MS)));
+
+    for (const protectedPath of protectedPaths) {
+      const current = await protectedFingerprint(targetRoot, protectedPath);
+      if (current !== initialFingerprints.get(protectedPath)) throw new BuilderError("merge.target_changed", "A protected fingerprint changed during merge", { path: protectedPath });
+    }
+    const stagedFiles = (await fileDigests(staging)).filter((file) => file.path !== artifactName);
+    for (const file of sourceRecord.files) {
+      const staged = stagedFiles.find((entry) => entry.path === file.path);
+      if (!staged || staged.digest !== file.digest) throw new BuilderError("merge.failed", "Staged artifact content does not match its record", { path: file.path });
+    }
+
+    if (process.env.SZD_PORTFOLIO_FAIL_AT === "promotion") throw new Error("injected promotion failure");
+    let hadPrevious = false;
+    try { await rename(targetRoot, previous); hadPrevious = true; } catch {}
+    if (process.env.SZD_PORTFOLIO_FAIL_AT === "promotion-interrupted") throw new Error("injected interrupted-promotion failure");
+    await rename(staging, targetRoot);
+    if (hadPrevious) await rm(previous, { recursive: true, force: true });
+    return { targetDir: targetRoot, artifactDigest: sourceRecord.artifactDigest };
+  } catch (cause) {
+    const ambiguous = await stat(previous).then(() => true).catch(() => false);
+    if (ambiguous) await writeFile(targetRecovery, canonical({ version: 1, operation: "merge", targetPath: targetRoot, stagingPath: staging, previousPath: previous, phase: "promotion-started" }));
+    throw cause instanceof BuilderError ? cause : new BuilderError("merge.failed", "Merge failed", { cause });
+  } finally {
+    for (const leasePath of acquiredLeases) await rm(leasePath, { force: true });
+    await rm(staging, { recursive: true, force: true });
+  }
+}

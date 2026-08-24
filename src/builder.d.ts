@@ -18,3 +18,6 @@ export function previewPortfolioSite(paths: BuilderPaths, address: ServerAddress
 export function validateProvenanceManifestV1(input: unknown): ValidationResult<any>;
 export function validateArtifactRecordV1(input: unknown): ValidationResult<any>;
 export function validateRecoveryRecordV1(input: unknown): ValidationResult<any>;
+export interface MergeOptions { readonly artifactDir: string; readonly targetDir: string; readonly protectedPaths: readonly string[]; }
+export interface MergeResult { readonly targetDir: string; readonly artifactDigest: string; }
+export function mergePortfolioArtifact(options: MergeOptions): Promise<MergeResult>;
