@@ -680,3 +680,33 @@ Reversibility: cheap. Lifted the moment Data.Json's own peer range widens to
 include React 19 — no code or contract change required on this side to revert.
 
 ## Open
+
+- On this machine's installed Node (v25.3.0), `child_process.execFile("npm", ...)`
+  and `execFile("npx", ...)` without `shell: true` fail with `spawn npm ENOENT`
+  / `spawn EINVAL` on Windows — Node 25 no longer resolves a bare `npm`/`npx`
+  through `PATHEXT` the way earlier majors did, and this machine's checkout
+  also has no `vite` in `node_modules` (nothing installs it; `builder.test.mjs`
+  and `packed.test.mjs` both reach it through `npx`). Together these break
+  every build/compile-path test that shells out (`test/packed.test.mjs`'s S10,
+  S12, S16, and the new S21.5 case; most of `test/builder.test.mjs`'s S11-S20
+  cases; `tools/release-verify.mjs`'s `unit`, `artifact-fault-injection`,
+  `react-major`, `data-json`, and `packed-tarball` gates) whenever they run on
+  this Node/OS combination - independent of any change in this repository.
+  Confirmed pre-existing: these same `builder.test.mjs` cases already fail
+  identically on `main`, before S21 touched anything. Found while implementing
+  S21's release verification tooling; not fixed here, since a Windows/Node-
+  version spawn and toolchain-provisioning workaround is outside S21's
+  `Touches` and would touch the build/compile fixtures' process-invocation
+  mechanism rather than the delivery mechanics S21 owns.
+- The `join(new URL("..", import.meta.url).pathname, ...)` path-join pattern
+  used throughout `test/*.test.mjs` produces a doubled drive letter
+  (`D:\D:\...`) on this same Node/Windows combination, breaking
+  `test/cli.test.mjs` and `test/builder.test.mjs` outright (`Cannot find
+  module 'D:\D:\...\src\cli.js'`). `test/packed.test.mjs` and
+  `test/delivery.test.mjs` were changed, in S21, to use `fileURLToPath`/a
+  `new URL("../relative/path", import.meta.url)` form instead, because S21
+  touches both files directly for other reasons; the same fix was not applied
+  to the other test files, which are outside `Touches` for this slice.
+- No import-graph or tree-shaking fixture exists in this repository.
+  `tools/release-verify.mjs` reports both as `not-run` for S21.4 rather than
+  fabricating a result. Building either fixture is separate work.

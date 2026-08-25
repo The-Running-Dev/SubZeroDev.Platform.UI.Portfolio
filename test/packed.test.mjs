@@ -3,11 +3,12 @@ import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 
 const execFile = promisify(execFileCallback);
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 
 test("S10.1, S10.6, and S12.6 packed entries install, SSR-render, and Vite-bundle with React 18 and 19", async (t) => {
   const { stdout } = await execFile("npm", ["pack", "--json"], { cwd: root });
@@ -78,4 +79,40 @@ test("S16.1 and S16.5 the data-json entry resolves a declared id through a peer-
   await execFile("node", ["entry.js"], { cwd: consumer });
   const rootManifest = JSON.parse(await readFile(join(consumer, "node_modules", "subzerodev-platform-ui-portfolio", "package.json"), "utf8"));
   assert.deepEqual(rootManifest.dependencies ?? {}, {});
+});
+
+test("S21.5 the packed tarball proves contracted files, declarations, CSS side effects, peer ranges, and absence of consumer data and Docusaurus", async (t) => {
+  const { stdout } = await execFile("npm", ["pack", "--json"], { cwd: root });
+  const [{ filename, files }] = JSON.parse(stdout);
+  const tarball = join(root, filename);
+  t.after(async () => rm(tarball, { force: true }));
+
+  const packedPaths = files.map((f) => f.path);
+  const allowedTopLevel = new Set(["package.json", "README.md"]);
+  assert.ok(packedPaths.every((p) => allowedTopLevel.has(p) || p.startsWith("src/")), `unexpected packed path outside src/, package.json, or README.md: ${packedPaths.filter((p) => !allowedTopLevel.has(p) && !p.startsWith("src/"))}`);
+  for (const declared of ["src/index.js", "src/index.d.ts", "src/builder.js", "src/builder.d.ts", "src/browser.js", "src/browser.d.ts", "src/data-json.js", "src/data-json.d.ts", "src/styles.css", "src/cli.js"]) {
+    assert.ok(packedPaths.includes(declared), `expected ${declared} in packed tarball`);
+  }
+  assert.ok(!packedPaths.some((p) => p.startsWith("src/builder/")), "provenance.json (build-time only) must not ship in the packed tarball unless explicitly declared");
+
+  const consumer = await mkdtemp(join(tmpdir(), "szd-portfolio-inspect-"));
+  t.after(async () => rm(consumer, { recursive: true, force: true }));
+  await writeFile(join(consumer, "package.json"), JSON.stringify({ type: "module" }));
+  await execFile("npm", ["install", "--no-package-lock", tarball, "react@18.3.1", "react-dom@18.3.1"], { cwd: consumer });
+  const manifest = JSON.parse(await readFile(join(consumer, "node_modules", "subzerodev-platform-ui-portfolio", "package.json"), "utf8"));
+
+  assert.equal(manifest.peerDependencies.react, "^18.0.0 || ^19.0.0");
+  assert.equal(manifest.peerDependencies["react-dom"], "^18.0.0 || ^19.0.0");
+  assert.equal(manifest.peerDependencies["subzerodev-data-json"], "^0.2.0");
+  assert.equal(manifest.peerDependenciesMeta["subzerodev-data-json"].optional, true);
+  assert.deepEqual(manifest.sideEffects, ["./src/styles.css"]);
+
+  const manifestText = JSON.stringify(manifest).toLowerCase();
+  assert.ok(!manifestText.includes("docusaurus"), "packed manifest must declare no Docusaurus dependency");
+  assert.ok(!Object.keys(manifest.dependencies ?? {}).length, "a root install must add no transitive dependency");
+
+  const consumerFiles = await readdir(join(consumer, "node_modules", "subzerodev-platform-ui-portfolio", "src"));
+  for (const forbidden of ["portfolio.json", "cv.json", "config.js", "config.ts", "site.config.js"]) {
+    assert.ok(!consumerFiles.includes(forbidden), `packed tarball must not embed consumer-authored ${forbidden}`);
+  }
 });
