@@ -71,22 +71,32 @@ test("S21.6 checkSourceEvidenceRole reports not-evaluated when no local checkout
   assert.equal(result.role, "deliveryMechanics");
 });
 
-test("S21.6 checkSourceEvidenceRole reports unchanged when HEAD matches the recorded commit and the tree is clean as recorded", async () => {
-  const role = { repository: "https://example.test/repo.git", commit: "abc123", clean: true };
+test("S21.6 checkSourceEvidenceRole reports unchanged when HEAD equals the recorded commit exactly", async () => {
+  const role = { repository: "https://example.test/repo.git", commit: "abc123" };
   const exec = async (file, args) => {
     if (args[0] === "rev-parse") return { stdout: "abc123\n" };
-    if (args[0] === "status") return { stdout: "" };
     throw new Error("unexpected call");
   };
   const result = await checkSourceEvidenceRole(role, "deliveryMechanics", { exec }, "/some/local/path");
   assert.equal(result.status, "unchanged");
 });
 
-test("S21.6 checkSourceEvidenceRole reports changed when the local tree is dirty but the record claims clean", async () => {
-  const role = { repository: "https://example.test/repo.git", commit: "abc123", clean: true };
+test("S21.6 checkSourceEvidenceRole reports unchanged when the recorded commit is an ancestor of a later HEAD", async () => {
+  const role = { repository: "https://example.test/repo.git", commit: "abc123" };
   const exec = async (file, args) => {
-    if (args[0] === "rev-parse") return { stdout: "abc123\n" };
-    if (args[0] === "status") return { stdout: " M some/file.ts\n" };
+    if (args[0] === "rev-parse") return { stdout: "def456\n" };
+    if (args[0] === "merge-base") return { stdout: "" };
+    throw new Error("unexpected call");
+  };
+  const result = await checkSourceEvidenceRole(role, "deliveryMechanics", { exec }, "/some/local/path");
+  assert.equal(result.status, "unchanged");
+});
+
+test("S21.6 checkSourceEvidenceRole reports changed when the recorded commit is not reachable from HEAD (rewritten or force-pushed history)", async () => {
+  const role = { repository: "https://example.test/repo.git", commit: "abc123" };
+  const exec = async (file, args) => {
+    if (args[0] === "rev-parse") return { stdout: "def456\n" };
+    if (args[0] === "merge-base") throw new Error("not an ancestor");
     throw new Error("unexpected call");
   };
   const result = await checkSourceEvidenceRole(role, "deliveryMechanics", { exec }, "/some/local/path");

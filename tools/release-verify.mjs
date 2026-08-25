@@ -10,8 +10,9 @@
 // silently omitted (AGENTS.md, "no silent caps").
 
 import { execFile as execFileCallback } from "node:child_process";
-import { writeFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
@@ -67,7 +68,13 @@ export function buildReleaseRecord({ gates, gitDiffCheckPassed, sourceEvidence, 
   };
 }
 
-/** Compares a provenance role's recorded {repository, commit, clean} against the actual local checkout named by localPath, when reachable. */
+/**
+ * Confirms a provenance role's recorded commit is still part of its evidence
+ * repository's history - reachable as HEAD or an ancestor of it - so a
+ * rewritten or force-pushed baseline is caught rather than assumed. The
+ * evidence repo's *current* working-tree state is irrelevant to whether the
+ * already-recorded baseline changed, so this does not re-derive `clean`.
+ */
 export async function checkSourceEvidenceRole(role, roleName, { exec = execFile } = {}, localPath) {
   if (!localPath) {
     return { role: roleName, status: "not-evaluated", detail: `no local checkout path supplied for ${role.repository}` };
@@ -75,19 +82,43 @@ export async function checkSourceEvidenceRole(role, roleName, { exec = execFile 
   try {
     const { stdout: headStdout } = await exec("git", ["rev-parse", "HEAD"], { cwd: localPath });
     const head = headStdout.trim();
-    const { stdout: statusStdout } = await exec("git", ["status", "--porcelain"], { cwd: localPath });
-    const clean = statusStdout.trim().length === 0;
     const commitReachable = head === role.commit
       ? true
       : await exec("git", ["merge-base", "--is-ancestor", role.commit, "HEAD"], { cwd: localPath }).then(() => true, () => false);
     return {
       role: roleName,
-      status: commitReachable && clean === role.clean ? "unchanged" : "changed",
-      detail: `HEAD=${head} recordedCommit=${role.commit} recordedClean=${role.clean} actualClean=${clean}`,
+      status: commitReachable ? "unchanged" : "changed",
+      detail: `HEAD=${head} recordedCommit=${role.commit}${commitReachable ? "" : " (not found in this repository's history)"}`,
     };
   } catch (error) {
     return { role: roleName, status: "not-evaluated", detail: error.message };
   }
+}
+
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+
+/** A local checkout laid out as this repository's own sibling directory, named after the evidence repository - this maintainer's dev-machine convention, not a consumer default. */
+function siblingCheckoutPath(repositoryUrl) {
+  const name = repositoryUrl.replace(/\.git$/, "").split("/").pop();
+  const candidate = join(dirname(packageRoot.replace(/[\\/]$/, "")), name);
+  return candidate;
+}
+
+export async function evaluateSourceEvidence() {
+  let provenance;
+  try {
+    provenance = JSON.parse(await readFile(join(packageRoot, "src/builder/provenance.json"), "utf8"));
+  } catch (error) {
+    return [{ role: "provenance", status: "not-evaluated", detail: `could not read provenance manifest: ${error.message}` }];
+  }
+  const roles = Object.entries(provenance).filter(([, value]) => value && typeof value === "object" && "commit" in value && "repository" in value);
+  const results = [];
+  for (const [roleName, role] of roles) {
+    const localPath = siblingCheckoutPath(role.repository);
+    const exists = await readFile(join(localPath, "package.json"), "utf8").then(() => true, () => false);
+    results.push(await checkSourceEvidenceRole(role, roleName, {}, exists ? localPath : undefined));
+  }
+  return results;
 }
 
 async function main() {
@@ -95,7 +126,7 @@ async function main() {
   const record = buildReleaseRecord({
     gates,
     gitDiffCheckPassed: await execFile("git", ["diff", "--check"]).then(() => true, () => false),
-    sourceEvidence: [{ role: "deliveryMechanics", status: "not-evaluated", detail: "run checkSourceEvidenceRole against a known local checkout to confirm" }],
+    sourceEvidence: await evaluateSourceEvidence(),
   });
   await writeFile(new URL("../release/verification-report.json", import.meta.url), `${JSON.stringify(record, null, 2)}\n`);
   process.stdout.write(`release verification: ${gates.filter((g) => g.status === "passed").length}/${gates.length} passed, ${record.gatesThatDidNotRun.length} did not run\n`);
