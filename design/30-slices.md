@@ -437,40 +437,6 @@ slices under `## Outstanding`; it never rewrites a landed row or reuses an id.
 
 ## Outstanding
 
-## S20 — Merge an artifact without risking protected content
-
-Delivers: A release maintainer can combine a verified Portfolio artifact with a
-caller-owned deployment tree while protected content and the previous target
-remain intact on collision, concurrent change, or failure.
-
-Touches: merge command, merge engine, artifact reader, lease and recovery
-records, command surface
-
-Depends on: S17
-
-Acceptance:
-
-- S20.1 `merge --artifact-dir <path> --target-dir <path>` requires both paths,
-  accepts an empty protected set as explicit policy, and treats each repeated
-  `--protect` value as one normalized relative subtree.
-- S20.2 Merge validates the source artifact, destination containment, capacity,
-  every collision, and every protected fingerprint before copying into a full
-  sibling staging tree.
-- S20.3 The source read lease and destination writer lease are acquired in
-  normalized-path order; reversed concurrent merges complete without deadlock
-  or one returns the contracted lease error.
-- S20.4 Mutation of a protected subtree after its first fingerprint returns
-  `merge.target_changed`, and collision, capacity, write, verification, and
-  promotion failures leave the original destination byte-for-byte unchanged.
-- S20.5 Interrupted promotion either restores the previous destination or
-  writes a recovery record naming the target, staging, previous tree, and phase;
-  a later merge refuses that state without deleting it.
-- S20.6 Successful merge promotes one verified tree and returns the exact source
-  artifact digest without modifying the source artifact or consumer repository.
-
-Out of scope: choosing protected paths, deleting recovery trees, selecting a
-host, publishing, and deploying.
-
 ## S21 — Ship reusable delivery mechanics with release evidence
 
 Delivers: A package maintainer can hand consumers documented, reusable build
@@ -533,3 +499,5 @@ repository modification, and default-branch merge.
   Criteria S18.1–S18.5. Landed at `864957b`.
 - **S19** — Preview the exact promoted artifact. Issue #12.
   Criteria S19.1–S19.4. Landed at `8a58770`.
+- **S20** — Merge an artifact without risking protected content. Issue #13.
+  Criteria S20.1–S20.6. Landed at `6ada500`.
