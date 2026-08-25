@@ -50,7 +50,8 @@
     "test": "node --test test/*.test.mjs",
     "check": "node --check src/index.js && node --test test/*.test.mjs && npm run typecheck",
     "pack:check": "npm pack --dry-run",
-    "typecheck": "npx --yes --package typescript@5.9.3 tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,ESNext.Disposable,DOM test/types.ts"
+    "typecheck": "npx --yes --package typescript@5.9.3 tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,ESNext.Disposable,DOM test/types.ts",
+    "release-verify": "node tools/release-verify.mjs"
   },
   "engines": {
     "node": ">=18.15.0"

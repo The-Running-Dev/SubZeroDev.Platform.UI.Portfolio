@@ -679,4 +679,118 @@ regression for consumers who don't use Data.Json at all.
 Reversibility: cheap. Lifted the moment Data.Json's own peer range widens to
 include React 19 — no code or contract change required on this side to revert.
 
+### 2026-08-25 — The Pages workflow declares the `github-pages` environment
+
+Context: P33 and `design/20-contract.md` § Delivery assets both stated that the
+reusable workflow supplies no environment, while
+`.github/workflows/deploy-pages.yml` has always declared
+`environment: name: github-pages` on its deploy job. The file's own header
+comment and `README.md` repeated the contract's claim rather than the file's
+behaviour, and `test/delivery.test.mjs` asserted the absence of a trigger and a
+concurrency group but never of an environment, so nothing caught the
+contradiction. A GitHub Pages deployment is gated on an environment:
+`actions/deploy-pages` documents `github-pages` as the target and notes a
+different name is possible but not recommended. There is no unenvironmented
+form, so the blanket prohibition was unsatisfiable for a Pages deploy job.
+
+Chosen: carve the environment *name* out of P33, S21.3, and the Delivery assets
+paragraph, and state why - a platform requirement, not a policy choice. What a
+caller owns about an environment is its protection rules: which refs may deploy
+and under whose review. The workflow declares none of those, so the ownership
+boundary the invariant exists to protect is intact; only its wording was wrong.
+The correction is descriptive in `README.md` and the workflow comment, and the
+missing `test/delivery.test.mjs` assertion now pins the declaration so the two
+cannot drift apart again.
+
+Rejected: **an optional `environment` workflow input defaulting to
+`github-pages`** - it relocates the hardcoded name into a default rather than
+removing it, adds a public input on a semver-governed asset that essentially no
+caller will set, and `actions/deploy-pages` discourages a non-default name.
+**Deleting the `environment:` block so the workflow matches P33 literally** - it
+makes the contract true by making the delivery asset non-functional, which
+inverts what the invariant is for.
+
+Reversibility: cheap. The carve-out is four sentences and one test assertion; it
+reverts by restoring the prohibition, though only alongside a workflow that no
+longer deploys to Pages.
+
+### 2026-08-25 — The Pages workflow checks its composite action out by caller-named repository and ref
+
+Context: `.github/workflows/deploy-pages.yml` invoked its own composite action
+as `uses: ./` twice, with an inline comment asserting that a relative reference
+resolves against the reusable workflow's own repository. It does not. GitHub
+documents that a called workflow's actions run as if they were part of the
+caller workflow, with `actions/checkout` checking out the caller's repository
+rather than the called workflow's; `actions/toolkit#1264` is the open issue for
+the resulting gap, which includes a called workflow being unable to read the ref
+it was invoked with. The workflow therefore looked for `action.yml` at the
+consumer's repository root and could not have worked for any caller. Nothing
+executed it - the action/workflow gate parses structure only - and
+`test/delivery.test.mjs` asserted exactly two `uses: ./` references, so a
+passing test pinned the defect in place.
+
+Chosen: add `action-repository` and `action-ref` as required, undefaulted
+workflow inputs, check that repository out into `.portfolio-action`, and
+reference `uses: ./.portfolio-action`. Neither input may acquire a default:
+defaulting the repository would embed this package's own repository identity,
+which the brief's ownership boundary excludes, and defaulting the ref would
+silently run an action version the caller did not select. The workflow removes
+the scratch checkout before `upload-pages-artifact` runs, because `target-dir`
+may legitimately be the repository root and no part of this package's own
+repository may reach the deployed site.
+
+The cost is real and accepted: the caller states the repository and ref twice -
+once in the `uses:` line selecting this workflow, once in `with:` - with no
+mechanism keeping them in sync, so a mismatched `action-ref` runs a different
+action version than the workflow expects. That duplication is the
+`actions/toolkit#1264` gap itself, not something this repository can close.
+Callers must also be able to read `action-repository` with their own
+`GITHUB_TOKEN`; a private action repository would need a token input this
+workflow does not declare.
+
+Rejected: **inline the install-and-invoke steps in the workflow and drop the
+action reference entirely** - the action is only `setup-node` plus a global
+install of the caller's exact version, so nothing it does is repository-local
+and the workflow could have done it directly with no cross-repository reference
+at all. Rejected because it puts the invocation logic in two places, and the
+duplication it removes is between caller inputs rather than inside the package.
+**Pin the action as `owner/repo@ref` inside the workflow** - it hardcodes this
+package's repository identity and a version the caller did not pin. **Drop the
+reusable workflow and ship only the action** - the brief's required outcome
+names both assets, so this is a scope reduction rather than a fix.
+
+Reversibility: moderate. The two inputs are public surface on a semver-governed
+asset, so removing them later - which is what adopting the inlined alternative
+would mean - is a breaking change for every caller that has adopted them.
+
 ## Open
+
+- On this machine's installed Node (v25.3.0), `child_process.execFile("npm", ...)`
+  and `execFile("npx", ...)` without `shell: true` fail with `spawn npm ENOENT`
+  / `spawn EINVAL` on Windows — Node 25 no longer resolves a bare `npm`/`npx`
+  through `PATHEXT` the way earlier majors did, and this machine's checkout
+  also has no `vite` in `node_modules` (nothing installs it; `builder.test.mjs`
+  and `packed.test.mjs` both reach it through `npx`). Together these break
+  every build/compile-path test that shells out (`test/packed.test.mjs`'s S10,
+  S12, S16, and the new S21.5 case; most of `test/builder.test.mjs`'s S11-S20
+  cases; `tools/release-verify.mjs`'s `unit`, `artifact-fault-injection`,
+  `react-major`, `data-json`, and `packed-tarball` gates) whenever they run on
+  this Node/OS combination - independent of any change in this repository.
+  Confirmed pre-existing: these same `builder.test.mjs` cases already fail
+  identically on `main`, before S21 touched anything. Found while implementing
+  S21's release verification tooling; not fixed here, since a Windows/Node-
+  version spawn and toolchain-provisioning workaround is outside S21's
+  `Touches` and would touch the build/compile fixtures' process-invocation
+  mechanism rather than the delivery mechanics S21 owns.
+- The `join(new URL("..", import.meta.url).pathname, ...)` path-join pattern
+  used throughout `test/*.test.mjs` produces a doubled drive letter
+  (`D:\D:\...`) on this same Node/Windows combination, breaking
+  `test/cli.test.mjs` and `test/builder.test.mjs` outright (`Cannot find
+  module 'D:\D:\...\src\cli.js'`). `test/packed.test.mjs` and
+  `test/delivery.test.mjs` were changed, in S21, to use `fileURLToPath`/a
+  `new URL("../relative/path", import.meta.url)` form instead, because S21
+  touches both files directly for other reasons; the same fix was not applied
+  to the other test files, which are outside `Touches` for this slice.
+- No import-graph or tree-shaking fixture exists in this repository.
+  `tools/release-verify.mjs` reports both as `not-run` for S21.4 rather than
+  fabricating a result. Building either fixture is separate work.

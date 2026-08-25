@@ -1,0 +1,115 @@
+name: Deploy Portfolio site to GitHub Pages
+
+# This workflow supplies no trigger, domain, or concurrency policy - the
+# caller's own workflow owns all of that and calls this one through `uses:`.
+# The deploy job below names the `github-pages` environment because a Pages
+# deployment has to run in one; it sets no protection rule or ref restriction
+# on it, which is the part of an environment the caller owns
+# (design/20-contract.md, "Delivery assets"; P33).
+
+on:
+  workflow_call:
+    inputs:
+      package-version:
+        description: Exact npm package version to install and invoke. Required, never defaulted to "latest".
+        required: true
+        type: string
+      action-repository:
+        description: Repository holding this workflow's composite action, as owner/repo. Required - a called workflow cannot infer its own repository.
+        required: true
+        type: string
+      action-ref:
+        description: Ref of action-repository to check the composite action out at. Required - set it to the same ref this workflow was called with.
+        required: true
+        type: string
+      root:
+        description: Site root directory
+        required: true
+        type: string
+      config:
+        description: Path to the site configuration module
+        required: true
+        type: string
+      out-dir:
+        description: Build output directory
+        required: true
+        type: string
+      target-dir:
+        description: Deployment tree the built site is merged into and uploaded from
+        required: true
+        type: string
+      protect:
+        description: Newline-separated list of target-relative paths merge must not overwrite
+        required: false
+        type: string
+      docs-artifact:
+        description: Name of a separately built documentation artifact to download into target-dir before merging
+        required: false
+        type: string
+    outputs:
+      page_url:
+        value: ${{ jobs.deploy.outputs.page_url }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # A called workflow's steps run as part of the caller, so a relative
+      # `./` reference resolves against the caller's checkout above, not
+      # against the repository holding this workflow - and a called workflow
+      # cannot learn the ref it was invoked with (actions/toolkit#1264). The
+      # caller therefore names the action's repository and ref alongside the
+      # `uses:` line that selected this workflow, and both are checked out
+      # here into a scratch directory removed again before the upload.
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.action-repository }}
+          ref: ${{ inputs.action-ref }}
+          path: .portfolio-action
+
+      - if: inputs.docs-artifact != ''
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ inputs.docs-artifact }}
+          path: ${{ inputs.target-dir }}
+
+      - uses: ./.portfolio-action
+        with:
+          package-version: ${{ inputs.package-version }}
+          command: build
+          root: ${{ inputs.root }}
+          config: ${{ inputs.config }}
+          out-dir: ${{ inputs.out-dir }}
+
+      - uses: ./.portfolio-action
+        with:
+          package-version: ${{ inputs.package-version }}
+          command: merge
+          artifact-dir: ${{ inputs.out-dir }}
+          target-dir: ${{ inputs.target-dir }}
+          protect: ${{ inputs.protect }}
+
+      # target-dir may legitimately be the repository root, so the scratch
+      # checkout is removed before the upload rather than left for Pages to
+      # publish - this workflow supplies no content to the deployed site.
+      - shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.portfolio-action"
+
+      - id: artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ inputs.target-dir }}
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

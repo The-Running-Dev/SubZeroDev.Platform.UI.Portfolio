@@ -1,0 +1,58 @@
+name: SubZeroDev Platform UI Portfolio
+description: Build, check, or merge a subzerodev-platform-ui-portfolio site.
+inputs:
+  package-version:
+    description: Exact npm package version to install and invoke. Required, never defaulted to "latest".
+    required: true
+  command:
+    description: build, check, or merge
+    required: true
+  root:
+    description: Site root directory (build, check)
+    required: false
+  config:
+    description: Path to the site configuration module (build, check)
+    required: false
+  out-dir:
+    description: Build output directory (build)
+    required: false
+  artifact-dir:
+    description: Built artifact directory to merge from (merge)
+    required: false
+  target-dir:
+    description: Deployment tree to merge into (merge)
+    required: false
+  protect:
+    description: Newline-separated list of target-relative paths merge must not overwrite (merge)
+    required: false
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 22
+    - shell: bash
+      env:
+        PACKAGE_VERSION: ${{ inputs.package-version }}
+        COMMAND: ${{ inputs.command }}
+        ROOT: ${{ inputs.root }}
+        CONFIG: ${{ inputs.config }}
+        OUT_DIR: ${{ inputs.out-dir }}
+        ARTIFACT_DIR: ${{ inputs.artifact-dir }}
+        TARGET_DIR: ${{ inputs.target-dir }}
+        PROTECT: ${{ inputs.protect }}
+      run: |
+        npm install --global "subzerodev-platform-ui-portfolio@$PACKAGE_VERSION"
+        args=("$COMMAND")
+        if [ -n "$ROOT" ]; then args+=(--root "$ROOT"); fi
+        if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
+        if [ -n "$OUT_DIR" ]; then args+=(--out-dir "$OUT_DIR"); fi
+        if [ -n "$ARTIFACT_DIR" ]; then args+=(--artifact-dir "$ARTIFACT_DIR"); fi
+        if [ -n "$TARGET_DIR" ]; then args+=(--target-dir "$TARGET_DIR"); fi
+        if [ -n "$PROTECT" ]; then
+          while IFS= read -r path; do
+            path="${path%$'\r'}"
+            if [ -n "$path" ]; then args+=(--protect "$path"); fi
+          done <<< "$PROTECT"
+        fi
+        subzerodev-platform-ui-portfolio "${args[@]}"
