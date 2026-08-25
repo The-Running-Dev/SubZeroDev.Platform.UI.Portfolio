@@ -51,6 +51,7 @@ runs:
         if [ -n "$TARGET_DIR" ]; then args+=(--target-dir "$TARGET_DIR"); fi
         if [ -n "$PROTECT" ]; then
           while IFS= read -r path; do
+            path="${path%$'\r'}"
             if [ -n "$path" ]; then args+=(--protect "$path"); fi
           done <<< "$PROTECT"
         fi

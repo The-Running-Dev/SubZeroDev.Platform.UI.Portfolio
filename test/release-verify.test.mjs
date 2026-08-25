@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GATE_DEFINITIONS, buildReleaseRecord, checkSourceEvidenceRole, runAllGates, runGate } from "../tools/release-verify.mjs";
+import { GATE_DEFINITIONS, buildReleaseRecord, checkGitWhitespace, checkSourceEvidenceRole, runAllGates, runGate } from "../tools/release-verify.mjs";
 
 test("S21.4 every named gate category from design/30-slices.md S21.4 has a definition", () => {
   const ids = new Set(GATE_DEFINITIONS.map((g) => g.id));
@@ -39,6 +39,59 @@ test("S21.4 runAllGates returns one result per definition, in order, even when s
   const results = await runAllGates(definitions, { exec });
   assert.deepEqual(results.map((r) => r.id), ["a", "b", "c"]);
   assert.deepEqual(results.map((r) => r.status), ["passed", "not-run", "failed"]);
+});
+
+test("S21.4 runAllGates runs a byte-identical command once and reports it under each gate id", async () => {
+  const definitions = [
+    { id: "react-major", command: ["node", ["--test", "test/packed.test.mjs"]] },
+    { id: "packed-tarball", command: ["node", ["--test", "test/packed.test.mjs"]] },
+    { id: "data-json", command: ["node", ["--test", "test/data-json.test.mjs"]] },
+  ];
+  let calls = 0;
+  const exec = async () => { calls += 1; return { stdout: "", stderr: "" }; };
+  const results = await runAllGates(definitions, { exec });
+  assert.equal(calls, 2, "the two identical commands must share one execution");
+  assert.deepEqual(results.map((r) => r.id), ["react-major", "packed-tarball", "data-json"]);
+  assert.deepEqual(results.map((r) => r.status), ["passed", "passed", "passed"]);
+});
+
+test("S21.4 a truncated failure detail says how much was dropped rather than ending mid-line", async () => {
+  const exec = async () => { throw Object.assign(new Error("exit 1"), { stdout: "x".repeat(5000) }); };
+  const result = await runGate({ id: "example", command: ["false", []] }, { exec });
+  assert.equal(result.status, "failed");
+  assert.match(result.detail, /\[truncated: \d+ further characters of gate output not recorded\]$/);
+});
+
+test("S21.6 checkGitWhitespace reports evaluated and passed when git diff --check succeeds", async () => {
+  const result = await checkGitWhitespace("/some/path", { exec: async () => ({ stdout: "", stderr: "" }) });
+  assert.deepEqual(result, { passed: true, evaluated: true });
+});
+
+test("S21.6 checkGitWhitespace reports an evaluated failure when git exits 1 for whitespace errors", async () => {
+  const exec = async () => { throw Object.assign(new Error("exit 1"), { code: 1, stdout: "README.md:3: trailing whitespace." }); };
+  const result = await checkGitWhitespace("/some/path", { exec });
+  assert.equal(result.passed, false);
+  assert.equal(result.evaluated, true);
+  assert.match(result.detail, /trailing whitespace/);
+});
+
+test("S21.6 checkGitWhitespace reports not-evaluated - never a whitespace failure - when git cannot run at all", async () => {
+  const exec = async () => { throw Object.assign(new Error("spawn git ENOENT"), { code: "ENOENT" }); };
+  const result = await checkGitWhitespace("/some/path", { exec });
+  assert.equal(result.evaluated, false, "an absent git must not be recorded as a whitespace failure");
+  assert.match(result.detail, /^not evaluated: /);
+});
+
+test("S21.6 buildReleaseRecord carries a not-evaluated git check through to the record", () => {
+  const record = buildReleaseRecord({ gates: [], gitDiffCheckPassed: false, gitDiffCheckEvaluated: false, gitDiffCheckDetail: "not evaluated: spawn git ENOENT", sourceEvidence: [] });
+  assert.equal(record.gitDiffCheckEvaluated, false);
+  assert.equal(record.gitDiffCheckDetail, "not evaluated: spawn git ENOENT");
+});
+
+test("S21.6 buildReleaseRecord omits the git detail entirely when there is none to report", () => {
+  const record = buildReleaseRecord({ gates: [], gitDiffCheckPassed: true, sourceEvidence: [] });
+  assert.equal(record.gitDiffCheckEvaluated, true);
+  assert.ok(!("gitDiffCheckDetail" in record));
 });
 
 test("S21.6 buildReleaseRecord lists every DidNotRun gate with its reason", () => {

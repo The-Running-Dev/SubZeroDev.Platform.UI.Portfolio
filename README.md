@@ -264,7 +264,7 @@ calling repository's.
 - uses: <owner>/<repo>@<exact-commit-or-tag>
   with:
     package-version: <exact-version>   # required, no default, never "latest"
-    command: build                     # required: build, check, dev, preview, or merge
+    command: build                     # required: build, check, or merge
     root: .
     config: ./portfolio.config.js
     out-dir: ./dist

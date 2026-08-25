@@ -10,12 +10,21 @@
 // silently omitted (AGENTS.md, "no silent caps").
 
 import { execFile as execFileCallback } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
+
+// `node --test` over these suites emits a line per assertion, which crosses
+// execFile's 1 MB default and would reject a passing gate with ENOBUFS.
+const MAX_GATE_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+// Failure detail is bounded so one runaway gate cannot dominate the record,
+// but a truncated detail always says so rather than ending mid-line as if it
+// were the whole output (AGENTS.md, "no silent caps").
+const DETAIL_LIMIT = 4000;
 
 export const GATE_DEFINITIONS = [
   { id: "typecheck", command: ["npm", ["run", "typecheck"]] },
@@ -40,32 +49,71 @@ export async function runGate(definition, { exec = execFile, cwd } = {}) {
   if (!command) return { id, status: "not-run", detail: reason };
   const [file, args] = command;
   try {
-    await exec(file, args, { cwd });
+    await exec(file, args, { cwd, maxBuffer: MAX_GATE_OUTPUT_BYTES });
     return { id, status: "passed" };
   } catch (error) {
-    const detail = [error.stdout, error.stderr, error.message].filter(Boolean).join("\n").slice(0, 4000);
+    const raw = [error.stdout, error.stderr, error.message].filter(Boolean).join("\n");
+    const detail = raw.length > DETAIL_LIMIT
+      ? `${raw.slice(0, DETAIL_LIMIT)}\n[truncated: ${raw.length - DETAIL_LIMIT} further characters of gate output not recorded]`
+      : raw;
     return { id, status: "failed", detail };
   }
 }
 
-/** Runs every gate in order. A gate that throws unexpectedly still yields a result for every other gate. */
+/**
+ * Runs every gate in order. A gate that throws unexpectedly still yields a
+ * result for every other gate. Gates declaring a byte-identical command share
+ * one execution - several categories deliberately point at the same fixture
+ * file, and re-running it cannot produce a different answer.
+ */
 export async function runAllGates(definitions = GATE_DEFINITIONS, options = {}) {
   const results = [];
-  for (const definition of definitions) results.push(await runGate(definition, options));
+  const byCommand = new Map();
+  for (const definition of definitions) {
+    const key = definition.command ? JSON.stringify(definition.command) : null;
+    if (key !== null && byCommand.has(key)) {
+      results.push({ ...byCommand.get(key), id: definition.id });
+      continue;
+    }
+    const result = await runGate(definition, options);
+    if (key !== null) byCommand.set(key, result);
+    results.push(result);
+  }
   return results;
 }
 
 /** Pure assembly of the release record from already-computed gate results and evidence checks. Exported for testing without spawning anything. */
-export function buildReleaseRecord({ gates, gitDiffCheckPassed, sourceEvidence, noExternalStateChanged = true }) {
+export function buildReleaseRecord({ gates, gitDiffCheckPassed, gitDiffCheckEvaluated = true, gitDiffCheckDetail, sourceEvidence, noExternalStateChanged = true }) {
   const notRun = gates.filter((g) => g.status === "not-run");
   return {
     version: 1,
     gates,
     gatesThatDidNotRun: notRun.map((g) => ({ id: g.id, reason: g.detail ?? "no reason given" })),
     gitDiffCheckPassed,
+    gitDiffCheckEvaluated,
+    ...(gitDiffCheckDetail === undefined ? {} : { gitDiffCheckDetail }),
     sourceEvidence,
     noExternalStateChanged,
   };
+}
+
+/**
+ * `git diff --check` exits 1 for whitespace errors and 128 for a fatal
+ * condition (no repository, no work tree), and fails to spawn entirely when
+ * git is absent. Only the first of those is a real "did not pass" - reporting
+ * the others as `false` would state a check result never obtained
+ * (AGENTS.md, "Verification").
+ */
+export async function checkGitWhitespace(cwd, { exec = execFile } = {}) {
+  try {
+    await exec("git", ["diff", "--check"], { cwd, maxBuffer: MAX_GATE_OUTPUT_BYTES });
+    return { passed: true, evaluated: true };
+  } catch (error) {
+    if (error.code === 1) {
+      return { passed: false, evaluated: true, detail: (error.stdout || "").slice(0, DETAIL_LIMIT) || "git diff --check reported whitespace errors" };
+    }
+    return { passed: false, evaluated: false, detail: `not evaluated: ${error.message}` };
+  }
 }
 
 /**
@@ -115,19 +163,29 @@ export async function evaluateSourceEvidence() {
   const results = [];
   for (const [roleName, role] of roles) {
     const localPath = siblingCheckoutPath(role.repository);
-    const exists = await readFile(join(localPath, "package.json"), "utf8").then(() => true, () => false);
+    // `.git` - a directory in a normal clone, a file in a worktree or
+    // submodule - is what makes the checkout answerable by `git rev-parse`.
+    // An evidence repository need not be an npm package.
+    const exists = await stat(join(localPath, ".git")).then(() => true, () => false);
     results.push(await checkSourceEvidenceRole(role, roleName, {}, exists ? localPath : undefined));
   }
   return results;
 }
 
 async function main() {
-  const gates = await runAllGates();
+  // Every gate command names its fixtures relative to the package root, so
+  // the run must not inherit whatever directory the process was launched
+  // from - a wrong cwd would report twelve gate failures that never happened.
+  const gates = await runAllGates(GATE_DEFINITIONS, { cwd: packageRoot });
+  const gitDiffCheck = await checkGitWhitespace(packageRoot);
   const record = buildReleaseRecord({
     gates,
-    gitDiffCheckPassed: await execFile("git", ["diff", "--check"]).then(() => true, () => false),
+    gitDiffCheckPassed: gitDiffCheck.passed,
+    gitDiffCheckEvaluated: gitDiffCheck.evaluated,
+    gitDiffCheckDetail: gitDiffCheck.detail,
     sourceEvidence: await evaluateSourceEvidence(),
   });
+  await mkdir(new URL("../release/", import.meta.url), { recursive: true });
   await writeFile(new URL("../release/verification-report.json", import.meta.url), `${JSON.stringify(record, null, 2)}\n`);
   process.stdout.write(`release verification: ${gates.filter((g) => g.status === "passed").length}/${gates.length} passed, ${record.gatesThatDidNotRun.length} did not run\n`);
   process.exitCode = gates.some((g) => g.status === "failed") ? 1 : 0;

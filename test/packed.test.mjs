@@ -93,7 +93,12 @@ test("S21.5 the packed tarball proves contracted files, declarations, CSS side e
   for (const declared of ["src/index.js", "src/index.d.ts", "src/builder.js", "src/builder.d.ts", "src/browser.js", "src/browser.d.ts", "src/data-json.js", "src/data-json.d.ts", "src/styles.css", "src/cli.js"]) {
     assert.ok(packedPaths.includes(declared), `expected ${declared} in packed tarball`);
   }
-  assert.ok(!packedPaths.some((p) => p.startsWith("src/builder/")), "provenance.json (build-time only) must not ship in the packed tarball unless explicitly declared");
+  // src/builder.js reads builder/provenance.json on every build, check, and
+  // merge, so the manifest is a shipped runtime input, not a repository-only
+  // fixture - omitting it would fail every consumer command with
+  // `provenance.invalid`. What must not ship beside it is anything else.
+  assert.ok(packedPaths.includes("src/builder/provenance.json"), "the bundled provenance manifest must ship - src/builder.js reads it on every command");
+  assert.deepEqual(packedPaths.filter((p) => p.startsWith("src/builder/")), ["src/builder/provenance.json"], "src/builder/ must contain the provenance manifest and nothing else");
 
   const consumer = await mkdtemp(join(tmpdir(), "szd-portfolio-inspect-"));
   t.after(async () => rm(consumer, { recursive: true, force: true }));

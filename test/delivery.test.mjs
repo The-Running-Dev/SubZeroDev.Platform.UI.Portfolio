@@ -98,7 +98,9 @@ test("S21.3 deploy-pages.yml has no on.push, on.schedule, or workflow_dispatch t
 });
 
 test("S21.3 deploy-pages.yml declares no concurrency group", () => {
-  assert.doesNotMatch(deployYml, /^concurrency:/m);
+  // Anchored with \s* so a job-level concurrency block - the natural place
+  // for one in a Pages workflow - is caught too, not only a top-level key.
+  assert.doesNotMatch(deployYml, /^\s*concurrency:/m);
 });
 
 test("S21.3 deploy-pages.yml names no domain, CNAME, or custom-domain value", () => {
