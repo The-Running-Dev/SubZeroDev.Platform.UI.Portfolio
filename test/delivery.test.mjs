@@ -103,6 +103,19 @@ test("S21.3 deploy-pages.yml declares no concurrency group", () => {
   assert.doesNotMatch(deployYml, /^\s*concurrency:/m);
 });
 
+test("S21.3 deploy-pages.yml's deploy job declares the github-pages environment and nothing more", () => {
+  // A Pages deployment has to run in an environment, so P33 carves the name
+  // out. What stays the caller's is the protection policy, so pin the block to
+  // exactly the name and the url GitHub surfaces - any third key here would be
+  // this workflow taking an environment decision that is the caller's. Scoped
+  // to the block, not the file, so prose about protection rules cannot trip it.
+  const jobBlock = deployYml.slice(deployYml.indexOf("jobs:"));
+  const environmentBlock = inputBlock(jobBlock, "environment");
+  assert.match(environmentBlock, /^\s*name:\s*github-pages\s*$/m);
+  const keys = [...environmentBlock.matchAll(/^\s*([a-z-]+):/gm)].map((m) => m[1]);
+  assert.deepEqual(keys.sort(), ["name", "url"]);
+});
+
 test("S21.3 deploy-pages.yml names no domain, CNAME, or custom-domain value", () => {
   assert.doesNotMatch(deployYml, /cname/i);
   assert.doesNotMatch(deployYml, /custom-domain/i);

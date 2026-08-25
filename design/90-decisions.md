@@ -679,6 +679,41 @@ regression for consumers who don't use Data.Json at all.
 Reversibility: cheap. Lifted the moment Data.Json's own peer range widens to
 include React 19 — no code or contract change required on this side to revert.
 
+### 2026-08-25 — The Pages workflow declares the `github-pages` environment
+
+Context: P33 and `design/20-contract.md` § Delivery assets both stated that the
+reusable workflow supplies no environment, while
+`.github/workflows/deploy-pages.yml` has always declared
+`environment: name: github-pages` on its deploy job. The file's own header
+comment and `README.md` repeated the contract's claim rather than the file's
+behaviour, and `test/delivery.test.mjs` asserted the absence of a trigger and a
+concurrency group but never of an environment, so nothing caught the
+contradiction. A GitHub Pages deployment is gated on an environment:
+`actions/deploy-pages` documents `github-pages` as the target and notes a
+different name is possible but not recommended. There is no unenvironmented
+form, so the blanket prohibition was unsatisfiable for a Pages deploy job.
+
+Chosen: carve the environment *name* out of P33, S21.3, and the Delivery assets
+paragraph, and state why - a platform requirement, not a policy choice. What a
+caller owns about an environment is its protection rules: which refs may deploy
+and under whose review. The workflow declares none of those, so the ownership
+boundary the invariant exists to protect is intact; only its wording was wrong.
+The correction is descriptive in `README.md` and the workflow comment, and the
+missing `test/delivery.test.mjs` assertion now pins the declaration so the two
+cannot drift apart again.
+
+Rejected: **an optional `environment` workflow input defaulting to
+`github-pages`** - it relocates the hardcoded name into a default rather than
+removing it, adds a public input on a semver-governed asset that essentially no
+caller will set, and `actions/deploy-pages` discourages a non-default name.
+**Deleting the `environment:` block so the workflow matches P33 literally** - it
+makes the contract true by making the delivery asset non-functional, which
+inverts what the invariant is for.
+
+Reversibility: cheap. The carve-out is four sentences and one test assertion; it
+reverts by restoring the prohibition, though only alongside a workflow that no
+longer deploys to Pages.
+
 ## Open
 
 - On this machine's installed Node (v25.3.0), `child_process.execFile("npm", ...)`

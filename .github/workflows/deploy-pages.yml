@@ -1,8 +1,11 @@
 name: Deploy Portfolio site to GitHub Pages
 
-# This workflow supplies no trigger, domain, environment name, or
-# concurrency policy - the caller's own workflow owns all of that and calls
-# this one through `uses:` (design/20-contract.md, "Delivery assets"; P33).
+# This workflow supplies no trigger, domain, or concurrency policy - the
+# caller's own workflow owns all of that and calls this one through `uses:`.
+# The deploy job below names the `github-pages` environment because a Pages
+# deployment has to run in one; it sets no protection rule or ref restriction
+# on it, which is the part of an environment the caller owns
+# (design/20-contract.md, "Delivery assets"; P33).
 
 on:
   workflow_call:

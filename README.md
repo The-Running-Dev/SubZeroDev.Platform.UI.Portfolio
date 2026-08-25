@@ -254,9 +254,11 @@ bundled product default.
 The package ships a composite action and a reusable GitHub Pages workflow
 alongside its commands. Both are consumed like any other GitHub Actions
 asset — pin an exact package version and an exact commit/tag, respectively —
-and neither infers a trigger, domain, environment, concurrency policy,
-credential, host, route, content, or decision to deploy. Those remain the
-calling repository's.
+and neither infers a trigger, domain, concurrency policy, credential, host,
+route, content, or decision to deploy. Those remain the calling repository's.
+The workflow's deploy job does name the `github-pages` environment, because a
+Pages deployment must run in one; it attaches no protection rule or ref
+restriction to it, which is the part of an environment a caller owns.
 
 ### Composite action (`action.yml`)
 
@@ -302,10 +304,11 @@ The workflow checks out the caller, optionally downloads the named
 above, uploads the resulting tree as a Pages artifact, and deploys it. It
 declares only the `contents: read`, `pages: write`, and `id-token: write`
 permissions its deploy job's checked-in fixture proves it needs. It supplies
-no `on:` trigger, no `environment` name, no `concurrency` group, and no
-domain — the caller's own workflow supplies the trigger and any policy
-around it, and calls this workflow through `uses:` with `with:` values that
-are entirely the caller's to set.
+no `on:` trigger, no `concurrency` group, and no domain — the caller's own
+workflow supplies the trigger and any policy around it, and calls this
+workflow through `uses:` with `with:` values that are entirely the caller's
+to set. The deploy job names the `github-pages` environment a Pages
+deployment requires, and sets no protection rule or ref restriction on it.
 
 ## Release verification
 
