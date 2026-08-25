@@ -459,10 +459,12 @@ Acceptance:
   command, root, configuration, output, and merge inputs and forwards them
   without inventing routes, addresses, credentials, or a latest version.
 - S21.3 The reusable Pages workflow has no trigger, domain, concurrency group,
-  credential, content, or implicit deploy decision; its deploy job declares the
-  `github-pages` environment a Pages deployment must run in, with no protection
-  rule or ref restriction on it, and only the permissions its checked-in
-  fixture proves it needs.
+  credential, content, implicit action source or version, or implicit deploy
+  decision; its deploy job declares the `github-pages` environment a Pages
+  deployment must run in, with no protection rule or ref restriction on it, and
+  only the permissions its checked-in fixture proves it needs. It takes the
+  composite action's repository and ref as required, undefaulted inputs and
+  leaves nothing of that checkout in the uploaded tree.
 - S21.4 Typecheck, unit, positive and branch-complete validator, SSR/hydration,
   interaction, accessibility, CSS/DOM namespace, import-graph, tree-shaking,
   artifact fault-injection, action/workflow, React-major, Data.Json, and packed

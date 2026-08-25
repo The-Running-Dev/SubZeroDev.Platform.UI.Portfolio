@@ -14,6 +14,14 @@ on:
         description: Exact npm package version to install and invoke. Required, never defaulted to "latest".
         required: true
         type: string
+      action-repository:
+        description: Repository holding this workflow's composite action, as owner/repo. Required - a called workflow cannot infer its own repository.
+        required: true
+        type: string
+      action-ref:
+        description: Ref of action-repository to check the composite action out at. Required - set it to the same ref this workflow was called with.
+        required: true
+        type: string
       root:
         description: Site root directory
         required: true
@@ -57,17 +65,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # A called workflow's steps run as part of the caller, so a relative
+      # `./` reference resolves against the caller's checkout above, not
+      # against the repository holding this workflow - and a called workflow
+      # cannot learn the ref it was invoked with (actions/toolkit#1264). The
+      # caller therefore names the action's repository and ref alongside the
+      # `uses:` line that selected this workflow, and both are checked out
+      # here into a scratch directory removed again before the upload.
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.action-repository }}
+          ref: ${{ inputs.action-ref }}
+          path: .portfolio-action
+
       - if: inputs.docs-artifact != ''
         uses: actions/download-artifact@v6
         with:
           name: ${{ inputs.docs-artifact }}
           path: ${{ inputs.target-dir }}
 
-      # A relative `./` action reference resolves against this reusable
-      # workflow's own repository and ref, not the caller's checkout above -
-      # no separate pin is needed for an action that already lives beside
-      # the workflow invoking it.
-      - uses: ./
+      - uses: ./.portfolio-action
         with:
           package-version: ${{ inputs.package-version }}
           command: build
@@ -75,13 +92,19 @@ jobs:
           config: ${{ inputs.config }}
           out-dir: ${{ inputs.out-dir }}
 
-      - uses: ./
+      - uses: ./.portfolio-action
         with:
           package-version: ${{ inputs.package-version }}
           command: merge
           artifact-dir: ${{ inputs.out-dir }}
           target-dir: ${{ inputs.target-dir }}
           protect: ${{ inputs.protect }}
+
+      # target-dir may legitimately be the repository root, so the scratch
+      # checkout is removed before the upload rather than left for Pages to
+      # publish - this workflow supplies no content to the deployed site.
+      - shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.portfolio-action"
 
       - id: artifact
         uses: actions/upload-pages-artifact@v5

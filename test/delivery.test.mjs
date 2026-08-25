@@ -131,10 +131,41 @@ test("S21.3 deploy-pages.yml's deploy job declares exactly the permissions its s
   assert.ok(deployYml.includes("deploy-pages"), "id-token: write is used by the Pages deployment");
 });
 
-test("S21.3 deploy-pages.yml invokes the composite action via a same-repository relative path, not a pinned external reference", () => {
+test("S21.3 deploy-pages.yml reaches the composite action through the caller-named checkout, never a bare relative path", () => {
+  // A called workflow's steps run in the caller's context, so `uses: ./` would
+  // resolve against the caller's checkout, where action.yml is not
+  // (actions/toolkit#1264). The action is checked out by caller-named
+  // repository and ref instead, and referenced through that path.
   const uses = [...deployYml.matchAll(/uses:\s*(\S+)/g)].map((m) => m[1]);
-  const actionUses = uses.filter((u) => u === "./");
-  assert.equal(actionUses.length, 2, "expected the build and merge steps both to reference the local action");
+  assert.equal(uses.filter((u) => u === "./").length, 0, "a bare ./ reference resolves against the caller, not this repository");
+  assert.equal(
+    uses.filter((u) => u === "./.portfolio-action").length,
+    2,
+    "expected the build and merge steps both to reference the checked-out action",
+  );
+  assert.match(deployYml, /repository:\s*\$\{\{\s*inputs\.action-repository\s*\}\}/);
+  assert.match(deployYml, /ref:\s*\$\{\{\s*inputs\.action-ref\s*\}\}/);
+  assert.match(deployYml, /path:\s*\.portfolio-action/);
+});
+
+test("S21.3 deploy-pages.yml requires action-repository and action-ref with no default", () => {
+  // Defaulting either would put this package's own repository identity, or an
+  // action version the caller did not select, into a caller-owned decision.
+  for (const name of ["action-repository", "action-ref"]) {
+    const block = inputBlock(deployYml, name);
+    assert.match(block, /required:\s*true/, `${name} must be required`);
+    assert.doesNotMatch(block, /default:/, `${name} must have no default`);
+  }
+});
+
+test("S21.3 deploy-pages.yml removes the action checkout before uploading the Pages artifact", () => {
+  // target-dir may be the repository root, so leaving .portfolio-action in
+  // place would publish this package's repository to the caller's site.
+  const cleanup = deployYml.indexOf(".portfolio-action\"");
+  const upload = deployYml.indexOf("upload-pages-artifact");
+  assert.ok(cleanup >= 0, "expected the scratch checkout to be removed");
+  assert.match(deployYml, /rm -rf "\$GITHUB_WORKSPACE\/\.portfolio-action"/);
+  assert.ok(cleanup < upload, "the removal must run before the Pages upload");
 });
 
 test("S21.3 deploy-pages.yml forwards package-version, root, config, and out-dir to the build step only, and artifact-dir/target-dir/protect to the merge step only", () => {

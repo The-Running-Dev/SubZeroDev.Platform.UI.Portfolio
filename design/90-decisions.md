@@ -714,6 +714,55 @@ Reversibility: cheap. The carve-out is four sentences and one test assertion; it
 reverts by restoring the prohibition, though only alongside a workflow that no
 longer deploys to Pages.
 
+### 2026-08-25 — The Pages workflow checks its composite action out by caller-named repository and ref
+
+Context: `.github/workflows/deploy-pages.yml` invoked its own composite action
+as `uses: ./` twice, with an inline comment asserting that a relative reference
+resolves against the reusable workflow's own repository. It does not. GitHub
+documents that a called workflow's actions run as if they were part of the
+caller workflow, with `actions/checkout` checking out the caller's repository
+rather than the called workflow's; `actions/toolkit#1264` is the open issue for
+the resulting gap, which includes a called workflow being unable to read the ref
+it was invoked with. The workflow therefore looked for `action.yml` at the
+consumer's repository root and could not have worked for any caller. Nothing
+executed it - the action/workflow gate parses structure only - and
+`test/delivery.test.mjs` asserted exactly two `uses: ./` references, so a
+passing test pinned the defect in place.
+
+Chosen: add `action-repository` and `action-ref` as required, undefaulted
+workflow inputs, check that repository out into `.portfolio-action`, and
+reference `uses: ./.portfolio-action`. Neither input may acquire a default:
+defaulting the repository would embed this package's own repository identity,
+which the brief's ownership boundary excludes, and defaulting the ref would
+silently run an action version the caller did not select. The workflow removes
+the scratch checkout before `upload-pages-artifact` runs, because `target-dir`
+may legitimately be the repository root and no part of this package's own
+repository may reach the deployed site.
+
+The cost is real and accepted: the caller states the repository and ref twice -
+once in the `uses:` line selecting this workflow, once in `with:` - with no
+mechanism keeping them in sync, so a mismatched `action-ref` runs a different
+action version than the workflow expects. That duplication is the
+`actions/toolkit#1264` gap itself, not something this repository can close.
+Callers must also be able to read `action-repository` with their own
+`GITHUB_TOKEN`; a private action repository would need a token input this
+workflow does not declare.
+
+Rejected: **inline the install-and-invoke steps in the workflow and drop the
+action reference entirely** - the action is only `setup-node` plus a global
+install of the caller's exact version, so nothing it does is repository-local
+and the workflow could have done it directly with no cross-repository reference
+at all. Rejected because it puts the invocation logic in two places, and the
+duplication it removes is between caller inputs rather than inside the package.
+**Pin the action as `owner/repo@ref` inside the workflow** - it hardcodes this
+package's repository identity and a version the caller did not pin. **Drop the
+reusable workflow and ship only the action** - the brief's required outcome
+names both assets, so this is a scope reduction rather than a fix.
+
+Reversibility: moderate. The two inputs are public surface on a semver-governed
+asset, so removing them later - which is what adopting the inlined alternative
+would mean - is a breaking change for every caller that has adopted them.
+
 ## Open
 
 - On this machine's installed Node (v25.3.0), `child_process.execFile("npm", ...)`

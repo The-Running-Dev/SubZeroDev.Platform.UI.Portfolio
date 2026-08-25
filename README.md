@@ -292,6 +292,8 @@ jobs:
     uses: <owner>/<repo>/.github/workflows/deploy-pages.yml@<exact-commit-or-tag>
     with:
       package-version: <exact-version>   # required
+      action-repository: <owner>/<repo>  # required: the repository above
+      action-ref: <exact-commit-or-tag>  # required: the same ref as above
       root: .
       config: ./portfolio.config.js
       out-dir: ./dist
@@ -309,6 +311,20 @@ workflow supplies the trigger and any policy around it, and calls this
 workflow through `uses:` with `with:` values that are entirely the caller's
 to set. The deploy job names the `github-pages` environment a Pages
 deployment requires, and sets no protection rule or ref restriction on it.
+
+`action-repository` and `action-ref` repeat the repository and ref from the
+`uses:` line, and are required rather than defaulted. A called workflow's
+steps run in the caller's context, so a relative `uses: ./` inside this
+workflow would resolve against *your* checkout rather than this repository,
+and a called workflow cannot read the ref it was invoked with
+([actions/toolkit#1264](https://github.com/actions/toolkit/issues/1264)).
+Naming them explicitly is the supported way to pin the action. Keep the two
+values in step with the `uses:` line, because nothing enforces that for you
+and a mismatched `action-ref` runs a different version of the action than of
+the workflow. The checkout lands in `.portfolio-action` and is removed before
+the Pages upload, so nothing of this repository reaches your deployed site
+even when `target-dir` is the repository root. `action-repository` must be
+readable by the caller's `GITHUB_TOKEN`.
 
 ## Release verification
 

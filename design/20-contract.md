@@ -133,8 +133,8 @@ does not thereby acquire later slices' declarations, integrations, or behavior.
   compiler. A failed generation is visible but never partly published.
   Regeneration tests enforce this.
 - **P33** Commands, the composite action, and the reusable workflow never infer
-  a trigger, domain, concurrency policy, credential, host, or decision to
-  deploy. The Pages workflow's deploy job declares the `github-pages`
+  a trigger, domain, concurrency policy, credential, host, action source or
+  version, or decision to deploy. The Pages workflow's deploy job declares the `github-pages`
   environment because a Pages deployment must run in one; the name is a
   platform requirement, not a policy choice, and the environment's protection
   rules - which refs may deploy, and under whose review - stay the caller's.
@@ -1198,7 +1198,20 @@ them. The reusable Pages workflow checks out the caller, optionally downloads a
 separately built documentation artifact, runs build and merge, uploads the
 result, and deploys through the caller's authorization. Neither asset supplies
 a trigger, domain, concurrency group, credential, route, content, or implicit
-latest package version. The workflow's deploy job names the `github-pages`
+latest package version.
+
+Because a called workflow's steps execute in the caller's context, the workflow
+cannot reach the composite action by a relative reference: such a reference
+resolves against the caller's checkout, and a called workflow cannot read the
+ref it was invoked with. The caller therefore names the action's repository and
+ref as required inputs. Neither may acquire a default. Defaulting the
+repository would embed this package's own repository identity in an asset whose
+whole premise is that it holds none; defaulting the ref would silently run an
+action version the caller did not select, which is the same defect as an
+implicit latest package version one level removed. The workflow places that
+checkout in a scratch directory and removes it before uploading, because the
+caller's deployment tree may be the repository root and no part of this
+package's repository may reach the deployed site. The workflow's deploy job names the `github-pages`
 environment because the Pages deployment API has no unenvironmented form; it
 declares no protection rule, reviewer, or ref restriction on that environment,
 all of which remain the caller's to configure and are the part of an
