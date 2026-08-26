@@ -437,49 +437,6 @@ slices under `## Outstanding`; it never rewrites a landed row or reuses an id.
 
 ## Outstanding
 
-## S21 — Ship reusable delivery mechanics with release evidence
-
-Delivers: A package maintainer can hand consumers documented, reusable build
-and Pages-delivery mechanics together with a complete statement of what was
-verified, without publishing or deploying on their behalf.
-
-Touches: package documentation, composite action, reusable Pages workflow,
-command surface, packed-consumer fixtures, verification report, extraction
-provenance fixtures
-
-Depends on: S18, S19, S20
-
-Acceptance:
-
-- S21.1 The package readme documents every export, command, required argument,
-  ownership boundary, explicit stylesheet, source timing, fallback state,
-  recovery stop, and non-goal without embedding consumer content, credentials,
-  routes, host, or deployment defaults.
-- S21.2 The composite action accepts an exact package version plus explicit
-  command, root, configuration, output, and merge inputs and forwards them
-  without inventing routes, addresses, credentials, or a latest version.
-- S21.3 The reusable Pages workflow has no trigger, domain, concurrency group,
-  credential, content, implicit action source or version, or implicit deploy
-  decision; its deploy job declares the `github-pages` environment a Pages
-  deployment must run in, with no protection rule or ref restriction on it, and
-  only the permissions its checked-in fixture proves it needs. It takes the
-  composite action's repository and ref as required, undefaulted inputs and
-  leaves nothing of that checkout in the uploaded tree.
-- S21.4 Typecheck, unit, positive and branch-complete validator, SSR/hydration,
-  interaction, accessibility, CSS/DOM namespace, import-graph, tree-shaking,
-  artifact fault-injection, action/workflow, React-major, Data.Json, and packed
-  tarball fixtures each report `passed`, `failed`, or `not-run` in the release
-  verification output.
-- S21.5 Tarball inspection proves the contracted files, exports, declarations,
-  CSS side effects, peer ranges, Node/Vite isolation, Data.Json isolation, and
-  absence of consumer data and Docusaurus runtime dependencies.
-- S21.6 The release record names every gate that did not run, `git diff --check`
-  passes, source evidence repositories remain unchanged, and no npm publish,
-  tag, deploy, consumer migration, or default-branch merge occurs.
-
-Out of scope: npm publication, tagging, deployment, consumer migration, source
-repository modification, and default-branch merge.
-
 ## Landed
 
 - **S10** — Render a validated Portfolio overview from the packed root. Issue #3.
@@ -504,3 +461,5 @@ repository modification, and default-branch merge.
   Criteria S19.1–S19.4. Landed at `8a58770`.
 - **S20** — Merge an artifact without risking protected content. Issue #13.
   Criteria S20.1–S20.6. Landed at `6ada500`.
+- **S21** — Ship reusable delivery mechanics with release evidence. Issue #14.
+  Criteria S21.1–S21.6. Landed at `b48607e`.
