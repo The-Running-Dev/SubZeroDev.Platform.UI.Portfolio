@@ -3,7 +3,7 @@ description: Switch back to the default branch, delete local branches already me
 ---
 
 <!-- companion:declared:start -->
-**Per-repo companion:** `.claude/commands/done-local.md`. Read it now, if it exists — an absent,
+**Per-repo companion:** `.claude/commands/clean-local.md`. Read it now, if it exists — an absent,
 empty, or frontmatter-only file is no companion, and this file then stands alone.
 It may override: `extra-steps`, `tightened-authorization`. It may never override anything in
 [`.claude/COMPANIONS.md`](../COMPANIONS.md) § *Never*, which is also where these categories are defined.
@@ -15,7 +15,7 @@ Housekeeping for the end of a piece of work: get back to the default branch, rem
 
 ## Run automatically, don't wait to be asked
 
-Run this command's housekeeping as soon as a merge is on the table — either because a PR was just merged in this session (e.g. as `/pr`'s or `/resolve`'s outcome), or because a `git log` / `gh pr list` check surfaces a branch that merged some other way. Don't wait for the user to type `/done`.
+Run this command's housekeeping as soon as a merge is on the table — either because a PR was just merged in this session (e.g. as `/pr`'s or `/resolve`'s outcome), or because a `git log` / `gh pr list` check surfaces a branch that merged some other way. Don't wait for the user to type `/clean`.
 
 The handoff at the end is part of the same automatic behaviour. `/track` follows every run — it is not asked for, and it is not conditional on how much this run cleaned up.
 

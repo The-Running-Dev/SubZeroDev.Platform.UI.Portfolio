@@ -763,4 +763,46 @@ Reversibility: moderate. The two inputs are public surface on a semver-governed
 asset, so removing them later - which is what adopting the inlined alternative
 would mean - is a breaking change for every caller that has adopted them.
 
+### 2026-08-26 — Kit sync d2ff850: adopt five upstream AGENTS.md policy changes verbatim
+
+Context: `/kit-sync` fast-forwarded `~/.agent-kit` from `9911712` (2026-08-22) to
+`d2ff850` (2026-08-25), 15 commits. Diffing the kit's `AGENTS.md` at both shas
+isolated five upstream policy changes not yet present in this repository's
+copy; the rest of the byte-diff was this repository's own pre-existing
+project content and reworded sections from earlier installs.
+
+Chosen: (1) retire the "High volume" tier, folding its task list (summaries,
+formatting, changelogs, commit messages, PR descriptions, mechanical triage)
+into the Implementation row, and drop the now-orphaned high-volume escalation
+clause; (2) `/code-review` now defaults to `high` effort unconditionally and
+always passes `--fix`, committing/pushing the result under the existing
+branch-delegation rule; (3) generalize branch/PR delegation from "non-default
+branch" to "no work lands on the default branch, ever" — a fresh branch is
+created before the first edit of any change, for any work, not only the four
+named commands; (4) rename `/done` to `/clean` throughout the routing table
+and the branch-cleanup delegation bullet, and delete `.claude/commands/done.md`
+now that `clean.md` supersedes it (`RemovedUpstream` per `Sync-Kit.ps1`); (5)
+update the Vendor model aliases section — drop the retired `Luna` row, and
+reclassify `GPT-5` as a bare family prefix that must resolve via session
+configuration rather than the self-reported name, per the kit's tightened
+Codex tier-resolution rule. The reference to `codex/PROFILES.md` this last
+change carries into the file is a dead link in this repository today, since
+Codex profiles remain un-installed (2026-08-20 decision, no evidence of Codex
+use) — accepted as-is because the surrounding table already documents Codex
+tiers generally, and the link becomes live the moment that decision reverses.
+
+Rejected: **skip the branch-delegation generalization** — it is the one change
+with real behavioral weight, but the repository's actual practice (per the
+2026-08-25 session log) already starts every change on a branch before
+editing; declining to record the upstream rule would leave the written
+contract behind the practice it is meant to describe. **keep `/done`'s
+routing row for continuity** — the command file is gone from the kit and
+`.claude/commands/done.md` was deleted in this same sync, so a routing row
+for a nonexistent command would be dead documentation immediately.
+
+Reversibility: cheap to moderate. Items 1, 2, 4, and 5 are textual/additive.
+Item 3 (branch delegation) changes what "starting work" means for every
+session in this repository and would need a deliberate rollback if it proves
+too aggressive for small doc-only edits.
+
 ## Open
