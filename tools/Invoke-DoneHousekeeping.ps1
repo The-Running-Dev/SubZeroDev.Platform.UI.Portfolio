@@ -1,16 +1,16 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    The mechanical half of /done (.claude/commands/done.md): switch to the default branch,
+    The mechanical half of /clean (.claude/commands/clean.md): switch to the default branch,
     prune stale remote-tracking refs, and report which local branches are safe to delete.
 
 .DESCRIPTION
-    Everything done.md does before its "Ask, once" step is a fact-gathering and
+    Everything clean.md does before its "Ask, once" step is a fact-gathering and
     non-destructive git sequence with no judgement call in it - is the tree dirty, what is
     the default branch, does the current branch have unmerged commits, which local branches
     does `--merged` confirm, and (cross-checked via `gh`) which of the rest merged by squash.
     That is exactly the kind of repeated, mechanical scan AGENTS.md's own model-work table
-    calls out as not needing a model call at all, which is why /done is routed `haiku/low`
+    calls out as not needing a model call at all, which is why /clean is routed `sonnet/medium`
     rather than higher - this script removes even that call for the part that never needed
     judgement.
 
@@ -18,7 +18,7 @@
     -DeleteBranches, it only switches, prunes, and reports candidates - nothing is deleted.
     AGENTS.md's *Git and delivery* is explicit that deleting a branch is not carved out of
     the authorization rule, so the actual delete list has to come from the one-time chat
-    approval done.md's "Ask, once" step gets - this script executes that approved list, it
+    approval clean.md's "Ask, once" step gets - this script executes that approved list, it
     does not produce it.
 
 .PARAMETER RepoRoot

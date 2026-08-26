@@ -763,34 +763,46 @@ Reversibility: moderate. The two inputs are public surface on a semver-governed
 asset, so removing them later - which is what adopting the inlined alternative
 would mean - is a breaking change for every caller that has adopted them.
 
-## Open
+### 2026-08-26 — Kit sync d2ff850: adopt five upstream AGENTS.md policy changes verbatim
 
-- On this machine's installed Node (v25.3.0), `child_process.execFile("npm", ...)`
-  and `execFile("npx", ...)` without `shell: true` fail with `spawn npm ENOENT`
-  / `spawn EINVAL` on Windows — Node 25 no longer resolves a bare `npm`/`npx`
-  through `PATHEXT` the way earlier majors did, and this machine's checkout
-  also has no `vite` in `node_modules` (nothing installs it; `builder.test.mjs`
-  and `packed.test.mjs` both reach it through `npx`). Together these break
-  every build/compile-path test that shells out (`test/packed.test.mjs`'s S10,
-  S12, S16, and the new S21.5 case; most of `test/builder.test.mjs`'s S11-S20
-  cases; `tools/release-verify.mjs`'s `unit`, `artifact-fault-injection`,
-  `react-major`, `data-json`, and `packed-tarball` gates) whenever they run on
-  this Node/OS combination - independent of any change in this repository.
-  Confirmed pre-existing: these same `builder.test.mjs` cases already fail
-  identically on `main`, before S21 touched anything. Found while implementing
-  S21's release verification tooling; not fixed here, since a Windows/Node-
-  version spawn and toolchain-provisioning workaround is outside S21's
-  `Touches` and would touch the build/compile fixtures' process-invocation
-  mechanism rather than the delivery mechanics S21 owns.
-- The `join(new URL("..", import.meta.url).pathname, ...)` path-join pattern
-  used throughout `test/*.test.mjs` produces a doubled drive letter
-  (`D:\D:\...`) on this same Node/Windows combination, breaking
-  `test/cli.test.mjs` and `test/builder.test.mjs` outright (`Cannot find
-  module 'D:\D:\...\src\cli.js'`). `test/packed.test.mjs` and
-  `test/delivery.test.mjs` were changed, in S21, to use `fileURLToPath`/a
-  `new URL("../relative/path", import.meta.url)` form instead, because S21
-  touches both files directly for other reasons; the same fix was not applied
-  to the other test files, which are outside `Touches` for this slice.
-- No import-graph or tree-shaking fixture exists in this repository.
-  `tools/release-verify.mjs` reports both as `not-run` for S21.4 rather than
-  fabricating a result. Building either fixture is separate work.
+Context: `/kit-sync` fast-forwarded `~/.agent-kit` from `9911712` (2026-08-22) to
+`d2ff850` (2026-08-25), 15 commits. Diffing the kit's `AGENTS.md` at both shas
+isolated five upstream policy changes not yet present in this repository's
+copy; the rest of the byte-diff was this repository's own pre-existing
+project content and reworded sections from earlier installs.
+
+Chosen: (1) retire the "High volume" tier, folding its task list (summaries,
+formatting, changelogs, commit messages, PR descriptions, mechanical triage)
+into the Implementation row, and drop the now-orphaned high-volume escalation
+clause; (2) `/code-review` now defaults to `high` effort unconditionally and
+always passes `--fix`, committing/pushing the result under the existing
+branch-delegation rule; (3) generalize branch/PR delegation from "non-default
+branch" to "no work lands on the default branch, ever" — a fresh branch is
+created before the first edit of any change, for any work, not only the four
+named commands; (4) rename `/done` to `/clean` throughout the routing table
+and the branch-cleanup delegation bullet, and delete `.claude/commands/done.md`
+now that `clean.md` supersedes it (`RemovedUpstream` per `Sync-Kit.ps1`); (5)
+update the Vendor model aliases section — drop the retired `Luna` row, and
+reclassify `GPT-5` as a bare family prefix that must resolve via session
+configuration rather than the self-reported name, per the kit's tightened
+Codex tier-resolution rule. The reference to `codex/PROFILES.md` this last
+change carries into the file is a dead link in this repository today, since
+Codex profiles remain un-installed (2026-08-20 decision, no evidence of Codex
+use) — accepted as-is because the surrounding table already documents Codex
+tiers generally, and the link becomes live the moment that decision reverses.
+
+Rejected: **skip the branch-delegation generalization** — it is the one change
+with real behavioral weight, but the repository's actual practice (per the
+2026-08-25 session log) already starts every change on a branch before
+editing; declining to record the upstream rule would leave the written
+contract behind the practice it is meant to describe. **keep `/done`'s
+routing row for continuity** — the command file is gone from the kit and
+`.claude/commands/done.md` was deleted in this same sync, so a routing row
+for a nonexistent command would be dead documentation immediately.
+
+Reversibility: cheap to moderate. Items 1, 2, 4, and 5 are textual/additive.
+Item 3 (branch delegation) changes what "starting work" means for every
+session in this repository and would need a deliberate rollback if it proves
+too aggressive for small doc-only edits.
+
+## Open
