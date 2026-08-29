@@ -351,6 +351,7 @@ export async function startPortfolioDevServer(paths, address) {
   const initialResolved = await resolveBuildSources(initialConfig);
 
   let currentDir, previousDir, lastError, closed = false, generationInFlight = false, pending = false;
+  let activeGeneration = Promise.resolve();
   const watchers = new Map();
   const stagingDirs = new Set();
 
@@ -396,10 +397,12 @@ export async function startPortfolioDevServer(paths, address) {
     let config;
     try { config = await loadPortfolioConfig(paths.rootDir, paths.configPath); }
     catch (cause) { lastError = cause instanceof BuilderError ? cause : new BuilderError("config.load_failed", "Configuration could not load", { cause }); reportError(lastError); return; }
+    if (closed) return;
     updateWatches(config);
     let staged;
     try { const resolved = await resolveBuildSources(config); staged = await stageFrom(config, resolved); }
     catch (cause) { lastError = cause instanceof BuilderError ? cause : new BuilderError("compile.failed", "Development generation failed", { cause }); reportError(lastError); return; }
+    if (closed) { await rm(staged.target, { recursive: true, force: true }); stagingDirs.delete(staged.target); return; }
     await publish(staged);
   }
 
@@ -407,7 +410,7 @@ export async function startPortfolioDevServer(paths, address) {
     if (closed) return;
     if (generationInFlight) { pending = true; return; }
     generationInFlight = true;
-    runGeneration().finally(() => { generationInFlight = false; if (pending) { pending = false; scheduleGeneration(); } });
+    activeGeneration = runGeneration().finally(() => { generationInFlight = false; if (pending) { pending = false; scheduleGeneration(); } });
   }
 
   const server = createServer((req, res) => { respondFromRoot(currentDir, req.url, res).catch(() => { try { res.writeHead(500); res.end(); } catch {} }); });
@@ -419,8 +422,12 @@ export async function startPortfolioDevServer(paths, address) {
   });
 
   updateWatches(initialConfig);
-  try { await publish(await stageFrom(initialConfig, initialResolved)); }
-  catch (cause) { lastError = cause instanceof BuilderError ? cause : new BuilderError("compile.failed", "Development generation failed", { cause }); reportError(lastError); }
+  generationInFlight = true;
+  activeGeneration = (async () => {
+    try { await publish(await stageFrom(initialConfig, initialResolved)); }
+    catch (cause) { lastError = cause instanceof BuilderError ? cause : new BuilderError("compile.failed", "Development generation failed", { cause }); reportError(lastError); }
+  })().finally(() => { generationInFlight = false; if (pending) { pending = false; scheduleGeneration(); } });
+  await activeGeneration;
 
   async function close() {
     if (closed) return;
@@ -430,6 +437,7 @@ export async function startPortfolioDevServer(paths, address) {
     const stopped = new Promise((resolveClose) => server.close(() => resolveClose()));
     server.closeAllConnections();
     await stopped;
+    await activeGeneration.catch(() => {});
     for (const dir of stagingDirs) await rm(dir, { recursive: true, force: true });
     stagingDirs.clear(); currentDir = undefined; previousDir = undefined;
   }
