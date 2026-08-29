@@ -625,10 +625,11 @@ test("S18.5 closing while a generation is still in flight still removes every st
     await delay(20);
     globalThis.__szdDevGateResolve();
     await closePromise;
-    await delay(300);
 
-    const after = (await readdir(tmpdir())).filter((name) => name.startsWith(stagingPrefix)).length;
-    assert.equal(after, before, "closing while a generation is in flight still removes every staging directory this instance created");
+    await waitFor(
+      async () => (await readdir(tmpdir())).filter((name) => name.startsWith(stagingPrefix)).length === before,
+      { timeout: 3000 },
+    );
   } finally {
     delete globalThis.__szdDevStarted; delete globalThis.__szdDevGate; delete globalThis.__szdDevGateResolve;
   }
