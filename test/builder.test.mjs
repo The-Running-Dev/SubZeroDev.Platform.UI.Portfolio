@@ -604,6 +604,37 @@ test("S18.5 closing releases watchers, sockets, and staging state without touchi
   await new Promise((resolveClose) => probe.close(resolveClose));
 });
 
+test("S18.5 closing while a generation is still in flight still removes every staging directory", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "szd-portfolio-devsite-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  const configPath = join(dir, "site.mjs");
+  await writeFile(configPath, devConfigSource("Initial"));
+  const stagingPrefix = "szd-portfolio-dev-";
+  const before = (await readdir(tmpdir())).filter((name) => name.startsWith(stagingPrefix)).length;
+
+  const server = await startPortfolioDevServer({ rootDir: dir, configPath: "site.mjs", outDir: "out" }, { host: "127.0.0.1", port: 0 });
+  t.after(() => server.close());
+  await waitFor(async () => (await fetchText(server.address, "/")).body.includes("Initial"));
+
+  globalThis.__szdDevStarted = false;
+  globalThis.__szdDevGate = new Promise((resolveGate) => { globalThis.__szdDevGateResolve = resolveGate; });
+  await writeFile(configPath, devConfigSource("Gated", "globalThis.__szdDevStarted = true; await globalThis.__szdDevGate;"));
+  try {
+    await waitFor(() => globalThis.__szdDevStarted === true);
+
+    const closePromise = server.close();
+    await delay(20);
+    globalThis.__szdDevGateResolve();
+    await closePromise;
+
+    await waitFor(
+      async () => (await readdir(tmpdir())).filter((name) => name.startsWith(stagingPrefix)).length === before,
+      { timeout: 5000 },
+    );
+  } finally {
+    delete globalThis.__szdDevStarted; delete globalThis.__szdDevGate; delete globalThis.__szdDevGateResolve;
+  }
+});
+
 test("S19.1 requires every preview path and address value", async (t) => {
   const dir = await devFixture(); t.after(() => rm(dir, { recursive: true, force: true }));
   const paths = { rootDir: dir, configPath: "site.mjs", outDir: "out" };
