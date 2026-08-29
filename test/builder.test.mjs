@@ -5,12 +5,12 @@ import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { BuilderError, buildPortfolioSite, checkPortfolioSite, defineSource, mergePortfolioArtifact, previewPortfolioSite, startPortfolioDevServer, validateArtifactRecordV1, validatePortfolioSiteConfigV1, validateProvenanceManifestV1, validateRecoveryRecordV1 } from "../src/builder.js";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 const builderUrl = pathToFileURL(join(root, "src/builder.js")).href;
 const model = { version: 1, header: { title: "Built" }, statistics: [], categories: [], technologies: [], recentProjects: [] };
 const cvModel = { version: 1, header: { name: "Built", contact: [] }, sections: [] };
