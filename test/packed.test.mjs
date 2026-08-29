@@ -10,8 +10,21 @@ import test from "node:test";
 const execFile = promisify(execFileCallback);
 const root = fileURLToPath(new URL("..", import.meta.url));
 
+// Node 25 on Windows no longer resolves a bare "npm"/"npx" through PATHEXT
+// for execFile without `shell: true` (issue #43). Naming the .cmd shim
+// directly is not a fix either - Node's CVE-2024-27980 mitigation rejects
+// spawning a .cmd/.bat file without shell:true (EINVAL) - and npm/npx on
+// Windows are .cmd files, so a shell is unavoidable there. shell:true with
+// an array of args only concatenates rather than escaping them (Node's
+// DEP0190), which would be unsafe with untrusted input; every argument
+// here is a fixed literal or an mkdtemp-generated path, never external
+// input, so unescaped concatenation carries no injection risk in this file.
+const npmCommand = "npm";
+const npxCommand = "npx";
+const shellExecOptions = process.platform === "win32" ? { shell: true } : {};
+
 test("S10.1, S10.6, and S12.6 packed entries install, SSR-render, and Vite-bundle with React 18 and 19", async (t) => {
-  const { stdout } = await execFile("npm", ["pack", "--json"], { cwd: root });
+  const { stdout } = await execFile(npmCommand, ["pack", "--json"], { cwd: root, ...shellExecOptions });
   const [{ filename }] = JSON.parse(stdout);
   const tarball = join(root, filename);
   t.after(async () => rm(tarball, { force: true }));
@@ -20,7 +33,7 @@ test("S10.1, S10.6, and S12.6 packed entries install, SSR-render, and Vite-bundl
     const consumer = await mkdtemp(join(tmpdir(), "szd-portfolio-packed-"));
     t.after(async () => rm(consumer, { recursive: true, force: true }));
     await writeFile(join(consumer, "package.json"), JSON.stringify({ type: "module" }));
-    await execFile("npm", ["install", "--no-package-lock", tarball, `react@${reactVersion}`, `react-dom@${reactVersion}`], { cwd: consumer });
+    await execFile(npmCommand, ["install", "--no-package-lock", tarball, `react@${reactVersion}`, `react-dom@${reactVersion}`], { cwd: consumer, ...shellExecOptions });
     await writeFile(join(consumer, "entry.js"), [
       'import React from "react";',
       'import { renderToStaticMarkup } from "react-dom/server";',
@@ -32,8 +45,8 @@ test("S10.1, S10.6, and S12.6 packed entries install, SSR-render, and Vite-bundl
     ].join("\n"));
     await writeFile(join(consumer, "index.html"), '<script type="module" src="/entry.js"></script>');
     await execFile("node", ["entry.js"], { cwd: consumer });
-    await execFile("npm", ["install", "--no-package-lock", "vite@8.2.2"], { cwd: consumer });
-    await execFile("npx", ["vite", "build", "--outDir", "dist"], { cwd: consumer });
+    await execFile(npmCommand, ["install", "--no-package-lock", "vite@8.2.2"], { cwd: consumer, ...shellExecOptions });
+    await execFile(npxCommand, ["vite", "build", "--outDir", "dist"], { cwd: consumer, ...shellExecOptions });
     const assets = await readdir(join(consumer, "dist", "assets"));
     assert.equal(assets.some((asset) => asset.endsWith(".css")), false);
     const consumerManifest = JSON.parse(await readFile(join(consumer, "node_modules", "subzerodev-platform-ui-portfolio", "package.json"), "utf8"));
@@ -54,7 +67,7 @@ test("S10.1, S10.6, and S12.6 packed entries install, SSR-render, and Vite-bundl
 });
 
 test("S16.1 and S16.5 the data-json entry resolves a declared id through a peer-clean consumer install, and Data.Json stays absent from the root install", async (t) => {
-  const { stdout } = await execFile("npm", ["pack", "--json"], { cwd: root });
+  const { stdout } = await execFile(npmCommand, ["pack", "--json"], { cwd: root, ...shellExecOptions });
   const [{ filename }] = JSON.parse(stdout);
   const tarball = join(root, filename);
   t.after(async () => rm(tarball, { force: true }));
@@ -62,7 +75,7 @@ test("S16.1 and S16.5 the data-json entry resolves a declared id through a peer-
   const consumer = await mkdtemp(join(tmpdir(), "szd-portfolio-data-json-"));
   t.after(async () => rm(consumer, { recursive: true, force: true }));
   await writeFile(join(consumer, "package.json"), JSON.stringify({ type: "module" }));
-  await execFile("npm", ["install", "--no-package-lock", tarball, "react@18.3.1", "react-dom@18.3.1", "subzerodev-data-json@0.2.0"], { cwd: consumer });
+  await execFile(npmCommand, ["install", "--no-package-lock", tarball, "react@18.3.1", "react-dom@18.3.1", "subzerodev-data-json@0.2.0"], { cwd: consumer, ...shellExecOptions });
   await writeFile(join(consumer, "entry.js"), [
     'import { createJsonLoader } from "subzerodev-data-json";',
     'import { defineSource, portfolioViewModelV1Contract, resolveSource, validatePortfolioViewModelV1 } from "subzerodev-platform-ui-portfolio";',
@@ -82,7 +95,7 @@ test("S16.1 and S16.5 the data-json entry resolves a declared id through a peer-
 });
 
 test("S21.5 the packed tarball proves contracted files, declarations, CSS side effects, peer ranges, and absence of consumer data and Docusaurus", async (t) => {
-  const { stdout } = await execFile("npm", ["pack", "--json"], { cwd: root });
+  const { stdout } = await execFile(npmCommand, ["pack", "--json"], { cwd: root, ...shellExecOptions });
   const [{ filename, files }] = JSON.parse(stdout);
   const tarball = join(root, filename);
   t.after(async () => rm(tarball, { force: true }));
@@ -103,7 +116,7 @@ test("S21.5 the packed tarball proves contracted files, declarations, CSS side e
   const consumer = await mkdtemp(join(tmpdir(), "szd-portfolio-inspect-"));
   t.after(async () => rm(consumer, { recursive: true, force: true }));
   await writeFile(join(consumer, "package.json"), JSON.stringify({ type: "module" }));
-  await execFile("npm", ["install", "--no-package-lock", tarball, "react@18.3.1", "react-dom@18.3.1"], { cwd: consumer });
+  await execFile(npmCommand, ["install", "--no-package-lock", tarball, "react@18.3.1", "react-dom@18.3.1"], { cwd: consumer, ...shellExecOptions });
   const manifest = JSON.parse(await readFile(join(consumer, "node_modules", "subzerodev-platform-ui-portfolio", "package.json"), "utf8"));
 
   assert.equal(manifest.peerDependencies.react, "^18.0.0 || ^19.0.0");

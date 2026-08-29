@@ -17,6 +17,17 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 
+// Node 25 on Windows no longer resolves a bare "npm" through PATHEXT for
+// execFile without `shell: true` (issue #43); naming the .cmd shim directly
+// is not a fix either - Node's CVE-2024-27980 mitigation rejects spawning a
+// .cmd/.bat file without shell:true (EINVAL) - and npm on Windows is a .cmd
+// file, so a shell is unavoidable there. shell:true with an array of args
+// only concatenates rather than escaping them (Node's DEP0190); this gate's
+// command and args are fixed literals from GATE_DEFINITIONS, never external
+// input, so unescaped concatenation carries no injection risk here.
+const npmCommand = "npm";
+const npmExecOptions = process.platform === "win32" ? { shell: true } : {};
+
 // `node --test` over these suites emits a line per assertion, which crosses
 // execFile's 1 MB default and would reject a passing gate with ENOBUFS.
 const MAX_GATE_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -27,7 +38,7 @@ const MAX_GATE_OUTPUT_BYTES = 64 * 1024 * 1024;
 const DETAIL_LIMIT = 4000;
 
 export const GATE_DEFINITIONS = [
-  { id: "typecheck", command: ["npm", ["run", "typecheck"]] },
+  { id: "typecheck", command: [npmCommand, ["run", "typecheck"]] },
   { id: "unit", command: ["node", ["--test", "test/builder.test.mjs", "test/browser.test.mjs"]] },
   { id: "validator", command: ["node", ["--test", "test/portfolio.test.mjs", "test/projects.test.mjs", "test/data-json.test.mjs"]] },
   { id: "ssr-hydration", command: ["node", ["--test", "test/browser.test.mjs", "test/portfolio.test.mjs"]] },
@@ -49,7 +60,8 @@ export async function runGate(definition, { exec = execFile, cwd } = {}) {
   if (!command) return { id, status: "not-run", detail: reason };
   const [file, args] = command;
   try {
-    await exec(file, args, { cwd, maxBuffer: MAX_GATE_OUTPUT_BYTES });
+    const execOptions = file === npmCommand ? npmExecOptions : {};
+    await exec(file, args, { cwd, maxBuffer: MAX_GATE_OUTPUT_BYTES, ...execOptions });
     return { id, status: "passed" };
   } catch (error) {
     const raw = [error.stdout, error.stderr, error.message].filter(Boolean).join("\n");
