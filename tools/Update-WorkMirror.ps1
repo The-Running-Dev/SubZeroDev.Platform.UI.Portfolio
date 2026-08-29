@@ -16,8 +16,10 @@
     checkbox lines in the issue body, the same shape every issue template in this kit uses; an
     issue with none yields an empty list, not an absent field.
 
-    `MirroredAt` is stamped with the current commit on every write, including a write that
-    changed no other field (S14.2) - that stamp is the mirror's only claim to currency, and
+    A record is written only when a mirrored field - `Title`, `State`, `Rank`, or `Criteria` -
+    changed since the last write; `MirroredAt` is not itself a mirrored field and never triggers
+    a write by itself (S14.2). `MirroredAt` is stamped with the current commit on every write
+    that does happen - that stamp is the mirror's only claim to currency, and
     Test-DesignState.ps1's MirrorStale class is what a stale one costs (S14.7).
 
     Two ways this run does not touch the mirror at all: `design/FROZEN.md` present (S14.5,
@@ -241,6 +243,36 @@ function ConvertTo-WorkRefLines {
 }
 
 <#
+    Title, State, Rank and Criteria are the mirrored fields (contract/update-workmirror §
+    Semantics) - MirroredAt is deliberately excluded, since it is what this comparison decides
+    whether to restamp in the first place. Returns $null for a record that does not exist yet,
+    which never compares equal to a real one.
+#>
+function Read-ExistingWorkRefFields {
+    param([Parameter(Mandatory)][string] $Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+
+    $fields = @{}
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        if ($line -match '^(Title|State|Rank|Criteria):\s?(.*)$') {
+            $fields[$Matches[1]] = $Matches[2]
+        }
+    }
+    $fields
+}
+
+function Test-WorkRefFieldsChanged {
+    param([hashtable] $Existing, [Parameter(Mandatory)] $Issue, [Parameter(Mandatory)][string] $Rank, [Parameter(Mandatory)][AllowEmptyCollection()][string[]] $Criteria)
+
+    if (-not $Existing) { return $true }
+    if ($Existing['Title'] -ne $Issue.title) { return $true }
+    if ($Existing['State'] -ne $Issue.state) { return $true }
+    if ($Existing['Rank'] -ne $Rank) { return $true }
+    if ($Existing['Criteria'] -ne ($Criteria -join ', ')) { return $true }
+    return $false
+}
+
+<#
     The main entry point. RepoPath scopes both the freeze check and where records land;
     Repository (owner/repo) is passed through to gh exactly as Test-DesignDrift.ps1 does, and
     left empty to let gh resolve the current remote itself.
@@ -267,15 +299,21 @@ function Invoke-WorkMirrorUpdate {
     $projectPositions = if ($repoInfo) { Get-ProjectItemPositions -Owner $repoInfo.Owner -RepoName $repoInfo.Name } else { $null }
 
     $workDir = Join-Path $RepoPath 'design/state/work'
-    if ($issueList.Issues.Count -gt 0 -and -not (Test-Path -LiteralPath $workDir)) {
-        New-Item -ItemType Directory -Path $workDir -Force | Out-Null
-    }
 
     $written = [System.Collections.Generic.List[object]]::new()
     foreach ($issue in $issueList.Issues) {
         $rank = Get-IssueRank -Issue $issue -ProjectPositions $projectPositions
-        $lines = ConvertTo-WorkRefLines -Issue $issue -Rank $rank -Sha $sha
+        $criteria = Get-IssueCriteriaIds -Body $issue.body
         $file = Join-Path $workDir "$($issue.number).md"
+        $existing = Read-ExistingWorkRefFields -Path $file
+        if (-not (Test-WorkRefFieldsChanged -Existing $existing -Issue $issue -Rank $rank -Criteria @($criteria))) {
+            continue
+        }
+
+        if (-not (Test-Path -LiteralPath $workDir)) {
+            New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+        }
+        $lines = ConvertTo-WorkRefLines -Issue $issue -Rank $rank -Sha $sha
         $text = (($lines -join "`n") + "`n")
         Set-Content -LiteralPath $file -Value $text -NoNewline -Encoding utf8NoBOM
         $written.Add([pscustomobject]@{ Id = "work/$($issue.number)"; Path = $file })

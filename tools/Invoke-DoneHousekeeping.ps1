@@ -35,6 +35,12 @@
     Branch names to delete with `git branch -d` (never `-D`) after everything else has run.
     Only ever the branches named here - never inferred, never "everything --merged found."
 
+.PARAMETER ForceDeleteBranches
+    Branch names to delete with `git branch -D` after everything else has run. Only ever
+    honoured for a branch this same run independently confirmed in SquashMergeCandidates -
+    i.e. `--merged` did not see it, but `gh` found a merged PR whose head was this branch.
+    A name not in that list is refused, never force-deleted, even if passed here.
+
 .PARAMETER AutoStash
     Instead of stopping on a dirty tree, run `git stash push -u` and continue. The stash is
     never popped by this script - it is left on the stash list and reported back
@@ -48,6 +54,11 @@
 .EXAMPLE
     ./tools/Invoke-DoneHousekeeping.ps1 -DeleteBranches 'feature/foo','fix/bar'
     Also delete these two branches, once approval for exactly this list has been given.
+
+.EXAMPLE
+    ./tools/Invoke-DoneHousekeeping.ps1 -SkipPull -ForceDeleteBranches 'fix/squashed'
+    Force-delete a branch this run's own gh check found squash-merged in
+    SquashMergeCandidates, once approval for exactly this list has been given.
 #>
 [CmdletBinding()]
 param(
@@ -55,6 +66,7 @@ param(
     [string] $DefaultBranch,
     [switch] $SkipPull,
     [string[]] $DeleteBranches = @(),
+    [string[]] $ForceDeleteBranches = @(),
     [switch] $AutoStash
 )
 
@@ -98,6 +110,7 @@ if ($statusResult.Output.Trim()) {
             Pulled         = $false
             PrunedCount    = 0
             Candidates     = @()
+            SquashMergeCandidates = @()
             Deleted        = @()
             Refused        = @()
             Stashed        = $false
@@ -149,6 +162,7 @@ if ($currentBranch -and $currentBranch -ne $DefaultBranch) {
                 Pulled         = $false
                 PrunedCount    = 0
                 Candidates     = @()
+                SquashMergeCandidates = @()
                 Deleted        = @()
                 Refused        = @()
                 Stashed        = $stashed
@@ -188,6 +202,29 @@ foreach ($branch in $mergedBranches) {
     $candidates.Add([pscustomobject]@{ Branch = $branch; MergedPr = $prInfo })
 }
 
+# `--merged` can never see a squash-merge - GitHub's squash produces a new commit on
+# the default branch that shares no history with the branch tip, so the branch looks
+# permanently unmerged to git even though it is done. Cross-check every local branch
+# --merged did NOT confirm against gh, the same way the unmerged-current-branch check
+# above already does, so a squash-merged branch is surfaced automatically instead of
+# depending on the caller happening to already know about it.
+$allBranchesResult = Invoke-Git -GitArgs @('for-each-ref', '--format=%(refname:short)', 'refs/heads') -WorkingDir $repoRootResolved
+$allBranches = @(($allBranchesResult.Output -split "`n") |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ -and $_ -ne $DefaultBranch -and $mergedBranches -notcontains $_ })
+
+$squashMergeCandidates = [System.Collections.Generic.List[object]]::new()
+foreach ($branch in $allBranches) {
+    $prCheck = & gh pr list --state merged --head $branch --json number,url,mergeCommit 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $prCheck) { continue }
+    $parsed = @($prCheck | ConvertFrom-Json)
+    if ($parsed.Count -eq 0) { continue }
+    $squashMergeCandidates.Add([pscustomobject]@{
+        Branch   = $branch
+        MergedPr = $parsed[0].url
+    })
+}
+
 $deleted = [System.Collections.Generic.List[object]]::new()
 $refused = [System.Collections.Generic.List[object]]::new()
 foreach ($branch in $DeleteBranches) {
@@ -211,6 +248,32 @@ foreach ($branch in $DeleteBranches) {
     }
 }
 
+# Force-delete is only ever honoured for a branch this same run independently found
+# in SquashMergeCandidates - never for an arbitrary name the caller passes, even one
+# that really is merged, because that confirmation has to come from this run's own
+# gh check, not from the caller's say-so.
+$squashMergeBranchNames = @($squashMergeCandidates | ForEach-Object { $_.Branch })
+foreach ($branch in $ForceDeleteBranches) {
+    if ($squashMergeBranchNames -notcontains $branch) {
+        $refused.Add([pscustomobject]@{ Branch = $branch; Reason = "Not in this run's SquashMergeCandidates - not force-deleted." })
+        continue
+    }
+    $deleteResult = Invoke-Git -GitArgs @('branch', '-D', $branch) -WorkingDir $repoRootResolved
+    if ($deleteResult.ExitCode -eq 0) {
+        $deleted.Add($branch)
+    } else {
+        $blockingPath = Get-WorktreeBlockingPath -GitOutput $deleteResult.Output
+        if ($blockingPath) {
+            $refused.Add([pscustomobject]@{
+                Branch = $branch
+                Reason = "Checked out in another worktree at '$blockingPath' - run 'git worktree remove $blockingPath' first, not deleted."
+            })
+        } else {
+            $refused.Add([pscustomobject]@{ Branch = $branch; Reason = $deleteResult.Output })
+        }
+    }
+}
+
 [pscustomobject]@{
     Stopped        = $false
     Reason         = $null
@@ -219,6 +282,7 @@ foreach ($branch in $DeleteBranches) {
     Pulled         = $pulled
     PrunedCount    = $prunedLines.Count
     Candidates     = $candidates
+    SquashMergeCandidates = @($squashMergeCandidates)
     Deleted        = @($deleted)
     Refused        = @($refused)
     Stashed        = $stashed

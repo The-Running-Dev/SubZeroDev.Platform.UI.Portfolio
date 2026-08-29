@@ -29,7 +29,17 @@ tools/Invoke-DoneHousekeeping.ps1 -RepoRoot <repo> -AutoStash
 
 - **`Stopped: true`** means it refused to switch at all — the only remaining `Reason` is `UnmergedCurrentBranch` (the current branch has commits not on the default branch and no merged PR accounts for them, checked via `gh pr list --state merged --head <branch>`). Report `Detail` and stop; this is real unaccounted-for work and stays a hard stop, not something to guess past.
 - **`-AutoStash`** means a dirty tree no longer stops the run: the script runs `git stash push -u` first (never a discard) and reports `Stashed: true` / `StashRef`. **Always report the stash** so it doesn't get silently lost on whatever branch is checked out next — tell the user a stash was made and how to get it back (`git stash pop`, or `git stash apply stash@{0}` if something else has since been stashed on top).
-- **Otherwise** it has already checked out `DefaultBranch`, pulled (unless it failed), pruned remote-tracking refs (`PrunedCount`), and built `Candidates` — every branch `--merged <default>` confirms, each with its `MergedPr` where `gh` found one. **`--merged` is a genuine merge check**, so a squash-merged branch (GitHub's squash produces a new commit `--merged` cannot see as "the same") will not appear here even though `gh` shows it merged — if you know of one, name it when deleting anyway, with the PR link, same as any other candidate.
+- **Otherwise** it has already checked out `DefaultBranch`, pulled (unless it failed), pruned remote-tracking refs (`PrunedCount`), and built `Candidates` — every branch `--merged <default>` confirms, each with its `MergedPr` where `gh` found one. **`--merged` is a genuine merge check**, so a squash-merged branch (GitHub's squash produces a new commit `--merged` cannot see as "the same") never appears in `Candidates` even though `gh` shows it merged. The script cross-checks every branch `--merged` did *not* confirm against `gh` itself and reports the squash-merged ones separately in `SquashMergeCandidates` — you don't need to already know one exists.
+
+## Force-delete a squash-merged candidate
+
+`SquashMergeCandidates` is not `Candidates` — it fails the **Merged** gate below by definition, so it is never deleted automatically. Report it, name the PR, and ask once, the same as any other item outside the automatic path (`AGENTS.md` § *Git and delivery*: force-delete needs a separate explicit ask beyond a general merge confirmation). On a yes, call the script again:
+
+```powershell
+tools/Invoke-DoneHousekeeping.ps1 -RepoRoot <repo> -SkipPull -ForceDeleteBranches <branch>
+```
+
+The script only honours a name that this same run's own `SquashMergeCandidates` list confirmed — it does not trust a name passed in from outside that check, even one you're certain merged.
 
 ## Delete the confirmed candidates — don't block on a prompt
 
@@ -45,7 +55,7 @@ A branch is deleted without a chat confirmation only if **both** named gates pas
 
 | Gate | What it checks | Failure means |
 |---|---|---|
-| **Merged** | `git branch --merged <default>` lists the branch (`$mergedBranches` in the script) | Not a candidate at all — `gh pr list` showing it merged (e.g. by squash) does not satisfy this gate; report and ask separately |
+| **Merged** | `git branch --merged <default>` lists the branch (`$mergedBranches` in the script) | Not a candidate for automatic deletion — a branch `gh` shows merged by squash lands in `SquashMergeCandidates` instead, and is force-deleted only after a separate ask (see above) |
 | **SafeDelete** | `git branch -d` (never `-D`) exits 0 | The branch is a confirmed candidate but git itself refuses the delete (typically unmerged-relative-to-upstream in a way `--merged` didn't catch) |
 
 Proceed straight to the delete call; do not stop and wait for a chat confirmation first — the candidate list itself is the authorization, since every entry on it independently passed **Merged**. A name that is not in `--merged`'s list fails **Merged** and is refused, not deleted, even if you pass it.
@@ -61,6 +71,7 @@ Report after acting, not before — this is a summary of what happened, not a re
 - A stash made and how to restore it, if `Stashed: true`
 - Branches deleted, and the PR each merged through where known (`Deleted`)
 - Any branch left alone, and which named gate it failed — **Merged** or **SafeDelete** (`Refused`), or unmerged work that stopped the run before candidates were even built
+- Any squash-merged branch found in `SquashMergeCandidates`, with its PR link, asking once whether to force-delete it
 
 ## Hand off to `/track` — always
 
