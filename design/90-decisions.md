@@ -805,4 +805,48 @@ Item 3 (branch delegation) changes what "starting work" means for every
 session in this repository and would need a deliberate rollback if it proves
 too aggressive for small doc-only edits.
 
+### 2026-08-30 — Kit sync 5095a55: adopt four upstream AGENTS.md additions verbatim
+
+Context: `/kit-sync` fast-forwarded `~/.agent-kit` from the previously recorded
+`d57880d` to `5095a55`, 12 commits (branch `main`, cloned/tracked all along —
+no fresh clone needed). Diffing the kit's `AGENTS.md` at both shas isolated
+four upstream additions not yet present in this repository's copy; each landed
+in a passage this repository had not customized, so absorbing was a clean
+upstream update rather than a fork against project-specific wording. The rest
+of the kit sync (`.claude/commands/{clean,contract,design,kit-help,reconcile,
+redteam,track}.md`, `.claude/commands/next.md` new, and nine `tools/*.ps1`
+files) applied outright via `tools/Sync-Kit.ps1` as clean Added/Updated rows —
+no Divergent-Skipped, Collision-Skipped, or Unmigrated-Blocked rows in its
+report, so nothing else needed a decision.
+
+Chosen: (1) tighten the Vendor model aliases section's tier-resolution order —
+check the `AGENTKIT_TIER` environment stamp first (set by
+`tools/Invoke-CodexCommand.ps1`, now updated in this same sync), falling back
+to session configuration only when the stamp is absent or names no tier this
+repository's table carries; (2) add the `/next` row to the Command routing
+table, alongside `.claude/commands/next.md` (new, taken outright as a core);
+(3) add the narrow default-branch exception for derived design-state records —
+a commit touching only `design/state/work/`/`design/state-index.md` paths
+written by `tools/Update-WorkMirror.ps1` or `tools/Update-DesignProjection.ps1`
+in the same run, with `git status` showing nothing else modified and
+`tools/Test-DesignState.ps1` reporting clean, may land straight on the default
+branch with no pull request; (4) extend `/clean`'s branch-deletion delegation
+to force-delete a squash-merged branch, gated on
+`tools/Invoke-DoneHousekeeping.ps1`'s `SquashMergeCandidates`/
+`TipAheadOfMergedPr` comparison (headRefOid match required); and add the new
+"Writing a design-state record" section in full, since this repository's own
+`design/state/` tree exists (`design/state/work/`) and the section's applicability
+condition is met.
+
+Rejected: **skip items 3–5** as not-yet-wanted — rejected because this
+repository's `/track` runs already depend on exactly the mechanism these
+items describe (`design/state/work/` mirroring, `Invoke-DoneHousekeeping.ps1`'s
+squash-merge detection), so leaving the contract silent on rules the tooling
+already assumes would widen the doc/tree gap the kit's single-ownership
+principle exists to close.
+
+Reversibility: cheap. All four are additive text in previously-unmodified
+passages; none narrows or widens an existing rule this repository had already
+customized.
+
 ## Open
